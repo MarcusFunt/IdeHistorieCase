@@ -47,6 +47,17 @@ docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/
 
 A successful probe prints strict JSON with `language: "da"` and a nonempty `reply`; it exits nonzero if the model is unavailable or its output is invalid. This does not prove historical accuracy or fluency.
 
+
+### Optional verified starter model
+
+For a concrete first test on the RTX 3060, a compact Qwen3.5-4B Q4_K_M GGUF is available from Unsloth (Apache-2.0 model license). Download it deliberately on your Docker host rather than during container startup:
+
+```bash
+bash scripts/download_m1_model.sh /srv/ddu-models
+```
+
+The script pins a Hugging Face commit and verifies a published SHA-256. It downloads roughly 2.74 GB and is optional; any compatible GGUF can be selected in the inference environment file. For Qwen3.5, verify the model's chat template and disable extended thinking during short structured-output probes if necessary. The downloaded weights are outside Git and separate from AI-Stack.
+
 ## Independent failure test
 
 Stop **only inference**:

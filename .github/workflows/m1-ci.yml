@@ -57,3 +57,29 @@ jobs:
           cp deployment/inference/.env.example deployment/inference/.env
           docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env config --quiet
           docker compose -f deployment/inference/compose.yaml --env-file deployment/inference/.env config --quiet
+
+      - name: Build and boot Docker backend without inference
+        run: |
+          set -eu
+          docker network create ddu_inference_bus
+          docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env up -d --build
+          for i in $(seq 1 45); do
+            if curl --max-time 2 -fsS http://127.0.0.1:8000/readyz >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/healthz
+          curl -fsS http://127.0.0.1:8000/readyz
+          for i in $(seq 1 20); do
+            if curl --max-time 3 -fsS http://127.0.0.1:8000/api/v1/status | python -c 'import json,sys; d=json.load(sys.stdin); sys.exit(not (d.get("worker")=="running" and d.get("inference")=="degraded"))'; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/api/v1/status | python -c 'import json,sys; d=json.load(sys.stdin); assert d["database"] and d["worker"]=="running" and d["inference"]=="degraded", d; print(d)'
+      - name: Print container logs on failure
+        if: failure()
+        run: |
+          docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env ps || true
+          docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env logs --no-color --tail=120 || true
