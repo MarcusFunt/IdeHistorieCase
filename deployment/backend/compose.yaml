@@ -1,0 +1,58 @@
+name: ddu-backend
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ddu_game
+      POSTGRES_USER: ddu_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks: [data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ddu_app -d ddu_game']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../../backend
+    command: ['uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8000']
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_HOST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:8000:8000'
+    networks: [data, ingress]
+
+  turn-worker:
+    build:
+      context: ../../backend
+    command: ['python', '-m', 'app.workers.main']
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_HOST: postgres
+      LLM_BASE_URL: http://ddu-llm:8080/v1
+      EMBEDDING_BASE_URL: http://ddu-embedding:8090
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data, inference_bus]
+
+volumes:
+  pgdata:
+
+networks:
+  data:
+    internal: true
+  ingress: {}
+  inference_bus:
+    external: true
+    name: ddu_inference_bus
