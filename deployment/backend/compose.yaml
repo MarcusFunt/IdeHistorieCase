@@ -1,49 +1,66 @@
 name: ddu-backend
+
+x-backend-environment: &backend-environment
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB:-ddu_game}
+  DB_USER: ${POSTGRES_USER:-ddu_app}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/backend/.env}
+  LLM_BASE_URL: http://ddu-llm:8080
+  LLM_MODEL_ALIAS: ddu-narrator
+  WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-10}
+  WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-45}
+
+x-backend-build: &backend-build
+  context: ../../backend
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.7-pg18-trixie
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ddu_game
-      POSTGRES_USER: ddu_app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ddu_game}
+      POSTGRES_USER: ${POSTGRES_USER:-ddu_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/backend/.env}
     volumes:
       - pgdata:/var/lib/postgresql
     networks: [data]
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ddu_app -d ddu_game']
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  api:
-    build:
-      context: ../../backend
-    command: ['uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8000']
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_HOST: postgres
+  migrate:
+    build: *backend-build
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-environment
     depends_on:
       postgres:
         condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  api:
+    build: *backend-build
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
-      - '127.0.0.1:8000:8000'
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     networks: [data, ingress]
 
   turn-worker:
-    build:
-      context: ../../backend
-    command: ['python', '-m', 'app.workers.main']
+    build: *backend-build
+    command: ["python", "-m", "app.workers.main"]
     restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_HOST: postgres
-      LLM_BASE_URL: http://ddu-llm:8080/v1
-      EMBEDDING_BASE_URL: http://ddu-embedding:8090
+    environment: *backend-environment
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [data, inference_bus]
 
 volumes:
