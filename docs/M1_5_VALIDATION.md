@@ -1,4 +1,6 @@
-# M1.5 shared-inference host validation
+# Historical M1.5 shared-inference host validation
+
+This document records measurements from the previous application-owned llama.cpp/GGUF deployment. It is retained as historical evidence only; it is not the current inference deployment or a reproduction guide. The current service is owned and operated by [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE). Use the current service's runbook and benchmark documentation for vLLM procedures and results.
 
 Recorded 28 October 2026 on the target Windows host. The first M1 smoke test
 used baseline `f524f5e5694c87b87fe36905dac0e3648c0e806d`; the independent
@@ -46,30 +48,6 @@ is made. These are single-host, small-sample measurements, not throughput or
 p95 benchmarks. No AI-Stack inference workload was running during the test;
 GPU contention with it remains unmeasured. Desktop GPU processes were active.
 
-## Reproducing the checks
+## Historical reproduction notes
 
-Use the [M1 runbook](M1_RUNBOOK.md) to configure a compatible model and private
-password, validate Compose, create the external network, start inference on its
-own, then start the backend. Never commit environment files or model weights.
-With the backend running, `bash scripts/m1_smoke.sh` checks its endpoints,
-private inference health and the genuine history probe.
-
-Run the standalone commands in [the shared-inference guide](SHARED_INFERENCE.md)
-with `--disable-thinking` for this Qwen model. Run once normally and once with
-`--concurrent`. Repeat after stopping only the history backend:
-
-```sh
-docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env stop
-# Run the standalone check from the shared-inference guide here.
-docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env up -d
-bash scripts/m1_smoke.sh
-```
-
-To observe failure and recovery, stop only inference, wait for the worker poll,
-check the backend's three endpoints, and run the standalone client with
-`--timeout 2` expecting a nonzero exit. Restart inference and poll status
-until it reports ready; do not restart the backend for that recovery check.
-Use `nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits` at
-regular intervals during the concurrent call for an approximate device-wide
-VRAM sample. Inspect Compose/container port bindings to verify the model and
-database remain unpublished.
+The commands and model setup in the original M1.5 run have been retired with the app-owned llama.cpp deployment. They should not be used to start or stop the current inference service. The table above remains useful only as a record of the earlier baseline. For a current backend diagnostic, use [the backend runbook](M1_RUNBOOK.md); for current model deployment, lifecycle checks and GPU measurements, use [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE).
