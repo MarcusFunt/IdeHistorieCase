@@ -70,6 +70,8 @@ After the worker poll (default 10 seconds), the backend remains operational: `/h
 
 Do not routinely use `docker compose down -v` because it can delete the database volume. For detailed setup, tests, troubleshooting and security boundaries see [M1 runbook](docs/M1_RUNBOOK.md), then [implementation plan](IMPLEMENTATION_PLAN.md).
 
+For the shared HTTP contract and an independent two-workload client, see [Connecting an independent backend to shared inference](docs/SHARED_INFERENCE.md).
+
 ## Development tests
 
 ```bash

@@ -74,7 +74,12 @@ class LlamaClient:
         response = await self.client.post(f"{self.base_url}/v1/chat/completions", json=body)
         response.raise_for_status()
         document = response.json()
-        raw = document["choices"][0]["message"]["content"]
+        choice = document["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise ValueError("Completion was truncated by the token limit")
+        if choice.get("finish_reason") != "stop":
+            raise ValueError("Completion did not finish successfully")
+        raw = choice["message"]["content"]
         # Some models return a JSON string; accept only an object matching our strict schema.
         if not isinstance(raw, str):
             raise ValueError("Expected JSON text in the model response")

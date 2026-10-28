@@ -39,7 +39,11 @@ jobs:
       - name: Install backend with test dependencies
         run: python -m pip install -e "./backend[dev]"
       - name: Ruff
-        run: ruff check backend
+        run: |
+          ruff check backend
+          ruff check --select E4,E7,E9,F,I scripts/shared_inference_smoke.py tests
+      - name: Shared inference protocol tests
+        run: python -m unittest discover -s tests -v
       - name: Unit and contract tests
         working-directory: backend
         run: pytest -q -k "not heartbeat_insert_and_update"
