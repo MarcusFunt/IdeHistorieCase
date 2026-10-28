@@ -6,8 +6,9 @@ x-backend-environment: &backend-environment
   DB_NAME: ${POSTGRES_DB:-ddu_game}
   DB_USER: ${POSTGRES_USER:-ddu_app}
   DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/backend/.env}
-  LLM_BASE_URL: http://ddu-llm:8080
-  LLM_MODEL_ALIAS: ddu-narrator
+  LLM_BASE_URL: ${LLM_BASE_URL:-http://ddu-llm:8080}
+  LLM_MODEL_ALIAS: ${LLM_MODEL_ALIAS:-ddu-narrator}
+  LLM_ENABLE_THINKING: ${LLM_ENABLE_THINKING:-false}
   WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-10}
   WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-45}
 

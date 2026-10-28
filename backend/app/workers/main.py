@@ -6,7 +6,7 @@ import httpx
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 
-from app.ai.llm import LlamaClient
+from app.ai.llm import InferenceClient
 from app.core.settings import WORKER_HEALTH_TIMEOUT_SECONDS, get_settings
 from app.db.connection import engine
 from app.db.models import ServiceHeartbeat
@@ -38,7 +38,12 @@ async def monitor_inference() -> None:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(WORKER_HEALTH_TIMEOUT_SECONDS), trust_env=False
     ) as client:
-        llm = LlamaClient(settings.llm_base_url, settings.llm_model_alias, client)
+        llm = InferenceClient(
+            settings.llm_base_url,
+            settings.llm_model_alias,
+            client,
+            enable_thinking=settings.llm_enable_thinking,
+        )
         while True:
             ready = await llm.is_ready()
             message = "model ready" if ready else "model loading or unreachable"
