@@ -1,0 +1,22 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+**/secrets/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+# Model artifacts and generated data
+*.gguf
+*.safetensors
+logs/
+backups/
+artifacts/
+*.dump
+# Godot
+.godot/
