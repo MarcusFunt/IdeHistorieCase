@@ -54,7 +54,7 @@ See the [backend runbook](docs/M1_RUNBOOK.md), [shared inference client contract
 uv sync --project backend --extra dev
 uv run --project backend pytest backend/tests -q
 uv run --project backend ruff check backend
-uv run --project backend python -m unittest discover -s tests -v
+uv run --project backend ruff check --select E4,E7,E9,F,I scripts/m2_fake_smoke.py backend/tests
 ```
 
 GitHub Actions runs the PostgreSQL migrations and full M2 integration tests, validates only the backend Compose project, and boots the fake backend with inference absent. GPU/model validation lives in Local-AI-API-LITE and does not run in application CI.
