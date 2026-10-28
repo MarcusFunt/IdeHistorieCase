@@ -35,7 +35,7 @@ async def test_structured_probe_validates_output_schema():
         assert body["response_format"]["type"] == "json_schema"
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content": '{"language":"da","reply":"Fred gennem gensidige garantier."}'}}]},
+            json={"choices": [{"finish_reason": "stop", "message": {"content": '{"language":"da","reply":"Fred gennem gensidige garantier."}'}}]},
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
@@ -67,12 +67,57 @@ async def test_probe_returns_json_when_model_supports_thinking_mode():
 
 
 @pytest.mark.asyncio
+async def test_structured_probe_rejects_truncated_completion_even_with_valid_json():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"choices": [{"finish_reason": "length", "message": {
+                    "content": '{"language":"da","reply":"Hej"}'
+                }}]},
+            )
+        )
+    ) as http:
+        with pytest.raises(ValueError, match="truncat"):
+            await LlamaClient("http://llm:8080", "ddu-narrator", http).generate_danish_probe()
+
+
+@pytest.mark.asyncio
+async def test_structured_probe_propagates_http_errors():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(503))
+    ) as http:
+        with pytest.raises(httpx.HTTPStatusError):
+            await LlamaClient("http://llm:8080", "ddu-narrator", http).generate_danish_probe()
+
+
+@pytest.mark.asyncio
+async def test_structured_probe_propagates_timeouts():
+    def timeout(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(timeout)) as http:
+        with pytest.raises(httpx.TimeoutException):
+            await LlamaClient("http://llm:8080", "ddu-narrator", http).generate_danish_probe()
+
+
+@pytest.mark.asyncio
+async def test_structured_probe_rejects_invalid_json():
+    response = {"choices": [{"finish_reason": "stop", "message": {"content": "not JSON"}}]}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response))
+    ) as http:
+        with pytest.raises(ValueError):
+            await LlamaClient("http://llm:8080", "ddu-narrator", http).generate_danish_probe()
+
+
+@pytest.mark.asyncio
 async def test_structured_probe_rejects_unexpected_fields():
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda _: httpx.Response(
                 200,
-                json={"choices": [{"message": {"content": '{"language":"da","reply":"Hej","sql":"DROP TABLE"}'}}]},
+                json={"choices": [{"finish_reason": "stop", "message": {"content": '{"language":"da","reply":"Hej","sql":"DROP TABLE"}'}}]},
             )
         )
     ) as http:
