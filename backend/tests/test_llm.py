@@ -65,13 +65,18 @@ async def test_explicit_model_readiness_rejects_alias_mismatch():
         assert not await client.serves_expected_model()
 
 
-@pytest.mark.parametrize("enable_thinking", [False, True])
+@pytest.mark.parametrize("enable_thinking", [None, False, True])
 @pytest.mark.asyncio
 async def test_structured_probe_applies_the_configured_thinking_mode(enable_thinking):
     def handler(request):
         body = json.loads(request.content)
         assert body["response_format"]["type"] == "json_schema"
-        assert body["chat_template_kwargs"] == {"enable_thinking": enable_thinking}
+        schema = body["response_format"]["json_schema"]["schema"]
+        assert schema["properties"]["reply"]["pattern"] == r"\S"
+        if enable_thinking is None:
+            assert "chat_template_kwargs" not in body
+        else:
+            assert body["chat_template_kwargs"] == {"enable_thinking": enable_thinking}
         assert body["model"] == "ddu-narrator"
         return httpx.Response(
             200,
@@ -97,6 +102,7 @@ async def test_structured_probe_applies_the_configured_thinking_mode(enable_thin
         (completion("not JSON"), ValueError, "JSON"),
         (completion('{"language":"da","reply":"Hej","extra":1}'), ValidationError, None),
         (completion('{"language":"en","reply":"Hello"}'), ValidationError, None),
+        (completion('{"language":"da","reply":"   "}'), ValidationError, "blank"),
     ],
 )
 @pytest.mark.asyncio

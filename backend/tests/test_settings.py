@@ -43,6 +43,11 @@ def test_inference_model_alias_must_not_be_empty():
         Settings(llm_model_alias=" ")
 
 
-def test_model_specific_reasoning_default_is_disabled_but_configurable():
-    assert Settings().llm_enable_thinking is False
+def test_model_specific_reasoning_is_optional_and_configurable(monkeypatch):
+    monkeypatch.delenv("LLM_ENABLE_THINKING", raising=False)
+    assert Settings(_env_file=None).llm_enable_thinking is None
+    monkeypatch.setenv("LLM_ENABLE_THINKING", "")
+    assert Settings(_env_file=None).llm_enable_thinking is None
+    assert Settings(llm_enable_thinking="").llm_enable_thinking is None
+    assert Settings(llm_enable_thinking=False).llm_enable_thinking is False
     assert Settings(llm_enable_thinking=True).llm_enable_thinking is True

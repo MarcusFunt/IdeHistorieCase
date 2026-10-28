@@ -3,7 +3,7 @@ import json
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProbeReply(BaseModel):
@@ -11,12 +11,19 @@ class ProbeReply(BaseModel):
     language: Literal["da"]
     reply: str = Field(min_length=1, max_length=600)
 
+    @field_validator("reply", mode="before")
+    @classmethod
+    def reject_blank_reply(cls, value):
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("reply must not be blank")
+        return value
+
 
 PROBE_SCHEMA = {
     "type": "object",
     "properties": {
         "language": {"type": "string", "enum": ["da"]},
-        "reply": {"type": "string", "minLength": 1, "maxLength": 600},
+        "reply": {"type": "string", "minLength": 1, "maxLength": 600, "pattern": r"\S"},
     },
     "required": ["language", "reply"],
     "additionalProperties": False,
@@ -30,7 +37,7 @@ class InferenceClient:
         model_alias: str,
         client: httpx.AsyncClient,
         *,
-        enable_thinking: bool = False,
+        enable_thinking: bool | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model_alias = model_alias
@@ -65,8 +72,6 @@ class InferenceClient:
             "stream": False,
             "temperature": 0,
             "max_tokens": 180,
-            # This option is configurable because it is specific to the pinned Qwen3.5 template.
-            "chat_template_kwargs": {"enable_thinking": self.enable_thinking},
             "messages": [
                 {
                     "role": "system",
@@ -93,6 +98,9 @@ class InferenceClient:
                 },
             },
         }
+        # This option is template-specific; omit it unless the operator explicitly configures it.
+        if self.enable_thinking is not None:
+            body["chat_template_kwargs"] = {"enable_thinking": self.enable_thinking}
         response = await self.client.post(f"{self.base_url}/v1/chat/completions", json=body)
         response.raise_for_status()
         document = response.json()
