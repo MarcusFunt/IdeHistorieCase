@@ -2,305 +2,94 @@
 
 **Project:** DDU — educational history-of-ideas scenario game  
 **Version:** 1.0, 27 October 2026  
-**Status:** Detailed engineering plan / proposed design, not a claim of completed implementation  
+**Status:** M0–M2 infrastructure and backend prototype implemented; M3–M9 remain proposed work; not classroom-ready
 **Target:** One-developer MVP, local-first, browser-playable, Danish/English, 1–10 initial players  
 **Key requirement:** The game's model inference must run in Docker **outside, and independently of, the existing AI-Stack Docker deployment**.
 
 ## 0. Executive decision and scope
 
-Retain the original report's core principle: **Godot renders the game; FastAPI and deterministic Python rules control the application; PostgreSQL stores truth and evidence; an LLM proposes dialogue and bounded game events, never directly changes state.** The new design strengthens container and failure boundaries:
+**Implementation status (28 October 2026):** The external vLLM deployment and the application's M2 backend prototype have been implemented and accepted on the target host. This document now records the as-built boundary and evidence alongside a proposed roadmap; M2 is not a complete playable game or classroom deployment.
 
-- **`ddu-backend` Compose project:** `api`, `turn-worker`, `postgres`; later optional `ingest-job`, `backup`, and `metrics`/reverse proxy. It works even if inference is down, returning a truthful dependency-unavailable status or replaying previously committed sessions.
-- **`ddu-inference` Compose project:** at minimum `llm` and `embedding`; later independently switchable `stt`, `tts`, `reranker`. No dependency on AI-Stack images, networks, databases, secrets, or Compose lifecycle.
-- **Godot 4 frontend:** web build on GitHub Pages initially, or served via the same HTTPS gateway as the backend if cross-origin deployment is inconvenient.
-- **Independent controls:** `docker compose -p ddu-inference ... up/down` has no lifecycle effect on `ddu-backend`; the reverse is also true. Each inference container can restart independently. They communicate across one explicitly created **external Docker bridge network**.
-- **Do not add Kubernetes, Redis, Celery, RabbitMQ, LangChain, or a separate vector database by default.** Each is a future option only if there is measurable need. A PostgreSQL-backed job table is enough for the first low-throughput game.
-- **Existing AI-Stack:** completely optional and uninvolved. Its Docker networks and services must never be a required dependency. Because both use the same physical GPU, simultaneous execution can still compete for VRAM; isolation at the Compose level does *not* imply GPU memory partitioning.
+- **IdeHistorieCase application repository:** owns the API, PostgreSQL, migrations, durable turn queue, fake turn provider, worker health monitor, and its history-specific structured-output client and schema.
+- **Local-AI-API-LITE repository:** independently owns the pinned vLLM service, model revision/cache, GPU configuration, independent synthetic workloads, benchmarks, and model lifecycle.
+- The backend works with inference unavailable. `/healthz` reports process liveness; `/readyz` checks PostgreSQL; `/api/v1/status` reports worker and inference health separately. M2 turns use the deterministic fake provider.
+- Only the backend `turn-worker` joins the private `ddu_inference_bus` network. The API and database do not, and the model service has no published host port.
+- The Godot client, complete Versailles scenario, source-grounded RAG, production authentication, and classroom validation remain future work.
 
-### Non-goals for the first playable milestone
+### Non-goals for the implemented M2 prototype
 
-No continuously listening assistant, multi-user multiplayer negotiations, autonomous internet ingestion, student grading for high-stakes decisions, complicated authentication provider, giant historical corpus, always-on reranker, dynamic model hot swapping, or 10+ scenarios. Focus on one complete Versailles teaching loop. Speech is an enhancement, not a critical dependency.
+No complete game loop, continuously listening assistant, multiplayer negotiations, autonomous web ingestion, student grading for high-stakes decisions, external authentication provider, full historical corpus, always-on reranker, model hot swapping, or classroom-ready deployment. Focus future work on a complete, source-grounded Versailles teaching loop. Speech remains optional.
 
-### Success criteria
+### Current acceptance snapshot
 
-1. A browser opens the game, creates a session, selects a role, reads a dilemma, sends an argument, and receives a validated response with at least one usable source reference.
-2. The turn survives browser refresh; repeat submission with the same idempotency key produces no duplicate game event.
-3. `ddu-inference` can run with `ddu-backend` stopped, and `ddu-backend` remains operational in a reduced-capability state with inference stopped.
-4. No PostgreSQL or model port is published to the public internet. The only externally accessible application endpoint is the authenticated game API/reverse proxy.
-5. Replaying a stored turn does not require an AI model or network access.
-6. A documented student test demonstrates an actual learning objective, not merely believable historical dialogue.
-
----
+1. The vLLM service runs independently of the application backend, with no published model port. **Accepted on the target RTX 3060 host.**
+2. The backend remains alive and database-ready with inference stopped; status degrades and recovers as the model stops and restarts. **Accepted on the target host.**
+3. A deterministic, authenticated fake turn completes and replays without model inference. **Implemented and validated.**
+4. The worker's real Danish diagnostic validates a strict application-owned JSON schema against the external model. **Accepted on the target host.**
+5. No PostgreSQL or model port is published; the application API is loopback-bound. **Verified.**
+6. A student test demonstrates a learning objective with a complete game. **Not implemented.**
 
 ## 1. Architecture, deployment units and trust boundaries
 
 ```mermaid
-flowchart TB
-  Player[Player browser / Godot Web]
-  Gateway[HTTPS ingress: Tailscale Serve in dev; authenticated gateway for class]
-  subgraph B[ddu-backend -- independent Compose project]
-    API[api: FastAPI HTTP + session auth]
-    Worker[turn-worker: claim jobs + RAG + LLM orchestration + rules]
-    DB[(postgres: game + documents + vectors + job queue)]
+flowchart LR
+  Player[Future player browser / Godot Web]
+  Gateway[Future authenticated HTTPS gateway]
+  subgraph A[IdeHistorieCase application repository]
+    API[api: FastAPI]
+    Worker[turn-worker: durable fake turns + inference monitor / diagnostic]
+    DB[(postgres: application state + job queue)]
     API <--> DB
     Worker <--> DB
   end
-  subgraph I[ddu-inference -- independent Compose project]
-    LLM[llm: llama.cpp GGUF server, GPU]
-    EMB[embedding: SentenceTransformers API, CPU initially]
-    STT[stt: optional push-to-talk ASR]
-    TTS[tts: optional speech synthesis]
+  subgraph I[Local-AI-API-LITE repository]
+    LLM[vLLM: pinned model service and GPU]
   end
-  subgraph A[Existing AI-Stack -- NOT CONNECTED]
-    Legacy[Existing AI-Stack services]
-  end
-  Player --> Gateway --> API
-  Worker -->|private Docker network| LLM
-  Worker -->|private Docker network| EMB
-  Worker -.optional.-> STT
-  Worker -.optional.-> TTS
+  Player -. future .-> Gateway
+  Gateway -. future .-> API
+  Worker -->|private ddu_inference_bus| LLM
 ```
 
-**Network boundaries:**
-
-| Network | Members | Purpose | Public? |
+| Boundary | Members | Purpose | Public? |
 |---|---|---|---|
-| `ddu_backend_data` (backend project's `data` network; `internal: true`) | `api`, `turn-worker`, `postgres` | Database/query and job operations | No |
-| `ddu_backend_ingress` (backend local bridge) | `api` | Access the API via host loopback / trusted reverse proxy | Only through explicit gateway |
-| `ddu_inference_bus` (external network created once) | `turn-worker`, `llm`, `embedding`, optional speech services | Cross-Compose service discovery and inference requests | No; no port publishing |
-| AI-Stack's existing networks | AI-Stack services only | Unrelated deployments | Never joined by DDU |
+| Backend `data` network | `api`, `turn-worker`, `postgres` | Application queries, sessions and durable turns | No |
+| Backend `ingress` network | `api` | Host-loopback API and future trusted gateway | API binds to host loopback |
+| External `ddu_inference_bus` | `turn-worker` and the model service from Local-AI-API-LITE | Private cross-repository inference diagnostics | No host port publishing |
+| Existing AI-Stack networks | AI-Stack services only | Unrelated deployments | DDU never joins |
 
-**Security nuance:** A shared Docker bridge network is a communication boundary, not a full zero-trust service-mesh. Do not attach arbitrary unrelated containers to `ddu_inference_bus`. Add internal model API authentication if untrusted workloads ever share the Docker host/network.
-
-### Why two Compose projects, not one giant Compose file?
-
-Independent startups, deployment cycles, model upgrades, restart policies, logs, model storage and GPU lifecycle. Backend can be tested with a fake provider without mounting model weights. Inference can be benchmarked using diagnostic containers without touching a live educational session.
-
-### Why multiple inference containers rather than one enormous inference container?
-
-Use one *logical* inference deployment, but one container **per incompatible runtime or model workload**. The LLM, embedding, ASR and TTS libraries often have differing Python/CUDA requirements. Combining all into a single image increases dependency conflict, startup time and crash blast radius. You can run all of them as `ddu-inference`, or run only selected profiles. If your requirement is literally one inference container, start with `llm` alone and add the others; do not sacrifice isolation just to achieve a single image.
-
----
+The Docker bridge is a communication boundary, not a multi-tenant security boundary. Attach only trusted local services. The physical GPU remains a shared host resource and may contend with other workloads.
 
 ## 2. Repository structure and ownership
 
-```text
-ddu-history-game/
-├── godot/
-│   ├── project.godot
-│   ├── export_presets.cfg
-│   ├── scenes/{main_menu,scenario_select,gameplay,source_viewer,results}.tscn
-│   ├── autoload/{api_client,session_store,scene_router}.gd
-│   └── scripts/{dialogue_view,dilemma_input,source_panel,audio_capture}.gd
-├── backend/
-│   ├── pyproject.toml
-│   ├── Dockerfile
-│   ├── alembic.ini
-│   ├── migrations/
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── api/{auth,scenarios,sessions,turns,sources,health}.py
-│   │   ├── game/{state,rules,engine,rubric,schemas}.py
-│   │   ├── jobs/{models,repository,leases}.py
-│   │   ├── workers/{main,turn_pipeline}.py
-│   │   ├── rag/{ingest,chunking,lexical,semantic,fusion,evidence}.py
-│   │   ├── ai/{interfaces,local_llm,embedding_client,structured_validation}.py
-│   │   ├── db/{session,models,queries}.py
-│   │   └── core/{settings,security,telemetry}.py
-│   └── tests/{unit,integration,contracts,e2e,evals}/
-├── inference/
-│   ├── embedding/{Dockerfile,requirements.lock,main.py}
-│   ├── speech-asr/{Dockerfile,main.py}       # optional phase
-│   ├── speech-tts/{Dockerfile,main.py}       # optional phase
-│   └── README.md
-├── content/
-│   ├── scenarios/versailles-1919/{scenario.yaml,rubric.yaml,characters.yaml}
-│   ├── source-manifest.yaml
-│   └── prompts/{narrator,evaluator}.jinja2
-├── deployment/
-│   ├── backend/{compose.yaml,.env.example}
-│   ├── inference/{compose.yaml,.env.example}
-│   └── gateway/  # optional Caddy config / Serve notes
-├── scripts/{init_network.sh,smoke_test.sh,backup_db.sh,restore_db.sh}
-├── docs/{architecture,api-contracts,operations,security,model-benchmarks}.md
-└── .github/workflows/{backend-ci,frontend-ci,inference-smoke}.yaml
-```
+This application repository contains the FastAPI/PostgreSQL implementation under `backend/`, its backend-only Compose project under `deployment/backend/`, fake-turn smoke script, history-specific inference probe, and application documentation. It does not own model weights or model-serving infrastructure.
 
-**Version everything:** Docker image digests (after proving a version works), Python lockfiles, Godot editor/export template version, model repository/revision, GGUF file checksum, embedding model/dimension, YAML scenario revision, and prompt hash. Record these identifiers with every generated turn; don't depend on mutable `latest` tags in deployment.
+[Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) is the separate repository for the vLLM Compose deployment, model download/cache, serving configuration, infrastructure smoke tests, synthetic workload benchmark, host runbook, and GPU measurements. Keep credentials and model weights outside both repositories.
 
----
+The proposed Godot client, scenario content, RAG corpus, speech services, and future classroom gateway are not part of the current M2 implementation.
 
-## 3. Docker Compose blueprint: networking and lifecycle
+## 3. Deployment ownership and lifecycle
 
-Create the one cross-project network once:
+### 3.1 External inference service
 
-```bash
-docker network create --driver bridge ddu_inference_bus
-```
+The app repository no longer contains an inference Compose file or model download utility. Local-AI-API-LITE owns the pinned vLLM image, the `RedHatAI/Qwen3.5-4B-quantized.w4a16` model revision, GPU and serving limits, the model cache, and the current two-workload diagnostics. Follow that repository's runbook and benchmark record for model setup and lifecycle operations.
 
-If the network already exists, inspect it; do not blindly delete/recreate a network while services are using it. Docker Compose documents external networks specifically for inter-project communication: https://docs.docker.com/compose/how-tos/networking/.
+Create or inspect the external Docker bridge `ddu_inference_bus` when preparing the host. Do not delete or recreate it while any attached service is running. The model port is not published to the host.
 
-### 3.1 `deployment/inference/compose.yaml` — initial LLM container
+### 3.2 Application backend
 
-The following is an **illustrative starter configuration**, not a promise of a fully installed game. It assumes that `${LLM_MODELS_DIR}` contains `${LLM_GGUF_FILE}`, and that NVIDIA Docker GPU support has been tested. The embedding and speech services are added in later phases; see their contracts below.
+The backend Compose project at `deployment/backend/compose.yaml` owns `postgres`, the one-shot `migrate` service, `api`, and `turn-worker`. The worker alone joins `ddu_inference_bus`; PostgreSQL and the API remain on the application networks. The current M2 turn provider is deterministic and does not call the model.
 
-```yaml
-name: ddu-inference
-services:
-  llm:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    restart: unless-stopped
-    command:
-      - --model
-      - /models/${LLM_GGUF_FILE}
-      - --host
-      - 0.0.0.0
-      - --port
-      - '8080'
-      - --ctx-size
-      - ${LLM_CTX_SIZE:-4096}
-      - --n-gpu-layers
-      - ${LLM_GPU_LAYERS:-99}
-      - --parallel
-      - ${LLM_PARALLEL:-1}
-      - --alias
-      - ddu-narrator
-    volumes:
-      - ${LLM_MODELS_DIR:?Set LLM_MODELS_DIR}:/models:ro
-    networks:
-      inference_bus:
-        aliases: [ddu-llm]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+For backend-only development, follow the app repository [README](README.md) and [backend runbook](docs/M1_RUNBOOK.md). An external network object is required by Compose even when the model service is stopped, but fake turns work with inference absent.
 
-networks:
-  inference_bus:
-    external: true
-    name: ddu_inference_bus
-```
+### 3.3 Independent lifecycle
 
-No `ports` mapping: the container listens on its Docker network only. `--parallel=1` and `--ctx-size=4096` are conservative **starting experiments**, not final performance recommendations. Verify GPU offload, available KV cache, and real Danish generation quality; revise only after testing. The llama.cpp project documents both the `server-cuda` image and schema-constrained HTTP API: https://github.com/ggml-org/llama.cpp/blob/master/docs/docker.md and https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md.
+Start, stop, and update each project using the runbook in the repository that owns it. Stopping inference does not stop the backend or database. The worker heartbeat eventually reports inference as degraded; `/healthz` and database-backed `/readyz` stay healthy, and fake turns and replay continue to work. Restarting inference allows the worker monitor to report recovery without restarting the application.
 
-**Later inference services:** Each service joins the same `inference_bus` with a unique alias: `ddu-embedding`, `ddu-stt`, `ddu-tts`. Place `stt` and `tts` in Compose `profiles: [speech]`. The worker discovers them through DNS and config; the backend never depends on speech being available to process text turns. Container images for these services must be built, pinned, and tested before adding them to the deployment file.
+### 3.4 Process health, readiness and inference status
 
-### 3.2 `deployment/backend/compose.yaml` — API, worker, PostgreSQL
-
-This is the intended service topology; `api` and `turn-worker` builds only become runnable when the backend implementation described below exists:
-
-```yaml
-name: ddu-backend
-services:
-  postgres:
-    image: pgvector/pgvector:0.8.7-pg18-trixie
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ddu_game
-      POSTGRES_USER: ddu_app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql
-    networks: [data]
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ddu_app -d ddu_game']
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  api:
-    build:
-      context: ../../backend
-    command: ['uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8000']
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_HOST: postgres
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - '127.0.0.1:8000:8000'
-    networks: [data, ingress]
-
-  turn-worker:
-    build:
-      context: ../../backend
-    command: ['python', '-m', 'app.workers.main']
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_HOST: postgres
-      LLM_BASE_URL: http://ddu-llm:8080/v1
-      EMBEDDING_BASE_URL: http://ddu-embedding:8090
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks: [data, inference_bus]
-
-volumes:
-  pgdata:
-
-networks:
-  data:
-    internal: true
-  ingress: {}
-  inference_bus:
-    external: true
-    name: ddu_inference_bus
-```
-
-**PostgreSQL 18 volume caveat:** For PostgreSQL 18 the persistence mount is `/var/lib/postgresql`, not the older `/var/lib/postgresql/data`; see https://docs.docker.com/guides/postgresql/.
-
-**Important production corrections to the illustration:** Use long random secrets loaded via an appropriate protected secret mechanism. The DB application role should not remain a migration superuser; migrate with a dedicated privileged role, then use least-privileged runtime credentials. Pin image digests when qualified. Configure backups, resource limits, log rotation, HTTP timeouts, production TLS, and environment-specific DNS explicitly. The code referenced by `build` does not exist merely because this plan defines its expected paths.
-
-### 3.3 Independent startup and shutdown
-
-```bash
-# First time, once:
-docker network create ddu_inference_bus
-
-# Models can run when the backend is fully stopped:
-docker compose -f deployment/inference/compose.yaml \
-  --env-file deployment/inference/.env up -d llm
-
-# Backend remains a separate deployment:
-docker compose -f deployment/backend/compose.yaml \
-  --env-file deployment/backend/.env up -d postgres api turn-worker
-
-# Stop inference without stopping database/API:
-docker compose -f deployment/inference/compose.yaml down
-
-# Or stop only worker + API without stopping inference:
-docker compose -f deployment/backend/compose.yaml stop api turn-worker
-```
-
-If executing from another working directory, explicitly set `--project-directory` as needed, and validate Compose's interpolated config before starting: `docker compose -f <file> --env-file <file> config`. **Do not run `docker compose down -v` as a routine stop command**; `-v` can delete database volumes.
-
-To test inference without the backend, run a disposable diagnostics container attached to the same bridge:
-
-```bash
-docker run --rm --network ddu_inference_bus \
-  curlimages/curl:latest -fsS http://ddu-llm:8080/health
-```
-
-For a live deployment, pin the diagnostics image too. The test should return HTTP 200 only once the model is loaded; health may return 503 while loading.
-
-### 3.4 Process health vs readiness
-
-- `/healthz` (API): process responds and event loop is alive, even when inference is down.
-- `/readyz` (API): authenticated application can safely accept normal gameplay turn requests; checks DB and worker availability, and reports inference as **degraded** or unavailable separately.
-- `llm /health`: ready when weights loaded; do not mistake a running container for model readiness.
-- Embedding `/health` and `/ready`: report model ID, dimension, loaded state, and compute device.
-- Worker heartbeat: DB record of last healthy poll plus active-lease count. A live API and live database do not prove that pending turns are being processed.
-- Aggregate `/api/v1/capabilities`: `{text_generation, retrieval, speech_input, speech_output, replay}` to drive Godot's available UI controls.
-
-**Design constraint:** `depends_on` cannot span independent Compose projects. This is *intentional*: startup order is not a correctness requirement. Use runtime retries, backoff, bounded timeouts and explicit degraded states.
-
----
+- `/healthz` reports API process liveness independently of PostgreSQL and inference.
+- `/readyz` returns 200 when PostgreSQL is accessible; inference health is deliberately not a readiness gate for the fake M2 flow.
+- `/api/v1/status` reports database availability, worker heartbeat age, and inference state separately. It is a private diagnostic endpoint and must not be exposed publicly without authentication.
 
 ## 4. Runtime and GPU strategy (RTX 3060 12 GB target)
 
@@ -308,13 +97,13 @@ For a live deployment, pin the diagnostics image too. The test should return HTT
 
 | Workload | V1 default | Alternatives | When to change |
 |---|---|---|---|
-| Main LLM | llama.cpp `llama-server` CUDA + one GGUF, one model/container | vLLM, SGLang, Ollama as a separate container | Change if throughput/structured output/model support measurements justify it |
+| Main LLM | External vLLM service, pinned image and model revision in Local-AI-API-LITE | SGLang or another separate service | Revisit only with model compatibility or measured performance evidence; keep ownership independent |
 | Embeddings | Custom SentenceTransformers CPU-only API, EmbeddingGemma 2 text-only | Qwen3-Embedding-0.6B; TEI if model supported | Select using Danish retrieval accuracy + CPU latency, not benchmark reputation |
 | ASR (optional) | Qwen3-ASR-0.6B in an independently built container | Other local ASR or hosted adapter | Choose after Danish WER and latency tests |
 | TTS (optional) | Chatterbox Multilingual V3 container | Piper CPU fallback; alternative hosted TTS | Choose via Danish naturalness, speaker consistency, real-time factor and stability |
 | Reranker (later) | No reranker | Lightweight cross-encoder, Qwen3 reranker | Add if top-k retrieval benchmarking proves improvement |
 
-The embedding service should load its chosen model once at process startup. Make it expose `POST /v1/embeddings` or a carefully documented dedicated embedding endpoint and return `model_id`, `dimension`, `vectors`, and request timing. Validate that vectors are finite, nonzero, and have the expected length. Use consistent query/document prefixes when required by the chosen model.
+The active LLM profile is documented with image digest, model revision, context/concurrency settings, and host measurements in Local-AI-API-LITE. The remaining embedding, speech, and reranker choices below are proposed future work. The embedding service should load its chosen model once at process startup. Make it expose `POST /v1/embeddings` or a carefully documented dedicated embedding endpoint and return `model_id`, `dimension`, `vectors`, and request timing. Validate that vectors are finite, nonzero, and have the expected length. Use consistent query/document prefixes when required by the chosen model.
 
 ### 4.2 No continuous model swapping
 
@@ -329,7 +118,7 @@ Aim to keep the primary LLM fully GPU-resident. Keep the embedding model in CPU 
 - ASR/TTS enabled: peak memory when all active workloads overlap.
 - Existing AI-Stack concurrently running: determine whether there is an acceptable *shared GPU mode* at all. Docker GPU reservations do **not** guarantee exclusive VRAM slices or prevent oversubscription.
 
-Suggested initial targets for validation (not guaranteed performance): leave at least about 1–2 GiB observed GPU headroom under sustained load, try `LLM_PARALLEL=1`, and cap response token counts. Measure p50/p95 total turn latency and queue time. A 9B model in 4-bit may still exceed comfortable 12 GB limits once context/KV and speech are included; fall back to a smaller quantized model if needed.
+The current Qwen3.5 profile was measured at `max_model_len=4096` / `max_num_seqs=2` and `max_model_len=8192` / `max_num_seqs=4`, with `gpu_memory_utilization=0.75`; see the [Local-AI-API-LITE benchmark record](https://github.com/MarcusFunt/Local-AI-API-LITE/blob/main/docs/BENCHMARKS.md) for latency and VRAM evidence. These synthetic diagnostics do not establish full-game throughput. For future profiles, preserve observed VRAM headroom, cap response tokens, and measure p50/p95 generation and queue time before increasing concurrency.
 
 ### 4.3 Inference scheduler
 
@@ -341,19 +130,21 @@ Do not promise independent per-user real-time responses for 10 concurrent studen
 
 - Verify Docker Desktop's WSL2 Linux-container setup and GPU support: `docker run --rm --gpus all nvidia/cuda:12.9.0-base-ubuntu22.04 nvidia-smi` (check the selected CUDA image tag/host driver compatibility).
 - Keep PostgreSQL on a Docker-managed Linux volume or other Linux filesystem, **not** a bind mount into NTFS via `/mnt/c` or `/mnt/d`; filesystem performance and reliability matter.
-- Large model GGUF files may reside on a separate fast disk (e.g. D:) if mounted reliably into Docker, but verify model load times. A container's `:ro` mount protects the weights against accidental modifications.
+- Keep model snapshots in a persistent Docker-visible cache on a fast disk and verify cold-load time. The Local-AI-API-LITE service owns the current cache and snapshot lifecycle; do not copy weights into this application repository.
 - Budget host RAM, disk, Docker's WSL virtual disk, cold startup time, and backup capacity. Storing a named volume in Docker Desktop's default data disk can consume C: even if model weights are elsewhere; plan disk placement and backup deliberately.
 
 ---
 
 ## 5. Application/API contracts and request processing
 
+Sections 5–11 describe the proposed playable game, not the current M2 implementation. The M2 endpoints and narrower contracts are documented in the [README](README.md) and [M2 development guide](docs/M2_DEVELOPMENT.md).
+
 ### 5.1 API endpoints (versioned)
 
 | Endpoint | Purpose | Typical response |
 |---|---|---|
 | `GET /healthz` | Liveness | 200 even if a model is down |
-| `GET /readyz` | Readiness/degraded status | structured health components |
+| `GET /readyz` | Database readiness | 200 when PostgreSQL is accessible; independent of inference health |
 | `GET /api/v1/capabilities` | Show supported features | JSON booleans/availability |
 | `GET /api/v1/scenarios` | Available scenarios | list |
 | `GET /api/v1/scenarios/{slug}` | Roles, metadata, learning objectives | details |
@@ -597,23 +388,24 @@ Dashboards to prioritize: available model services, worker heartbeats, queue dep
 
 ## 12. Milestones and engineering acceptance gates
 
-Estimates below are planning ranges for one developer, not commitments. The original report's text-first estimate is about 90–130 hours; adding separate Compose projects, a durable job worker, operations and meaningful classroom testing may push the full polished scope above that. Keep the *first playable vertical slice* much smaller.
+The table separates the implemented prototype from the remaining game roadmap. Earlier hour estimates are planning ranges only; they are not completion claims.
 
-| Stage | Work package | Approx. focused hours | Exit gate |
-|---|---|---:|---|
-| M0 | Repo, design decisions, Docker GPU prerequisites, network creation | 6–10 | Compose configuration validates; NVIDIA GPU is visible to test container |
-| M1 | Independent llama.cpp container + health check + prompt probe | 5–10 | `ddu-inference` answers while backend is fully stopped; never touches AI-Stack |
-| M2 | Backend Compose (`postgres`, `api`, `worker`), DB migrations, fake provider | 12–20 | An authenticated test session and fake turn complete with inference stopped |
-| M3 | Godot UI and async turn endpoint/poll/resume | 10–18 | Browser submits/reloads/replays a deterministic mock turn |
-| M4 | Deterministic scenario rules + complete Versailles text-only flow | 12–20 | The game reaches reflection under fake provider with fixed tests |
-| M5 | Embedding service + curated corpus + hybrid RAG + citation checks | 14–24 | 30–50 retrieval eval queries; no fabricated citation ID accepted |
-| M6 | Real LLM prompt adapter, schemas, bounded repair, error recovery | 10–18 | Real local full turn; attempts/retries never duplicate state changes |
-| M7 | Model/GPU benchmarks and 2–10 student load test | 8–15 | Stable target profile selected; hard timeouts and headroom documented |
-| M8 | Auth hardening, trusted/classroom ingress, observability, backup/restore | 12–20 | No DB/model exposure; one successful restore and replay |
-| M9 | Learner usability study, feedback/rubric adjustments, written DDU documentation | 10–18 | Evidence of user feedback and at least one recorded iterative improvement |
-| Optional | ASR, TTS, voice caching and browser audio | 14–30+ | Speech can be disabled without preventing text gameplay |
+| Stage | Work package | Status / exit gate |
+|---|---|---|
+| M0 | Repository setup, Docker GPU prerequisites and private network | **Accepted** on the target Windows/WSL2 host; NVIDIA GPU visibility verified. |
+| M1 | Independent model service and structured Danish diagnostic | **Accepted** using Local-AI-API-LITE and its pinned vLLM/model profile. |
+| M1.5 | Shared-inference prototype measurements | The older llama.cpp/GGUF measurements are preserved as historical evidence. Current vLLM measurements are in Local-AI-API-LITE. |
+| M2 | Backend Compose, PostgreSQL migrations, health monitor and deterministic fake provider | **Implemented and validated**: authenticated fake turn, retry/idempotency, completion, resume and replay work without inference. This is a backend prototype, not a playable game. |
+| M3 | Godot UI and async turn endpoint/poll/resume | **Proposed**: browser submits, reloads and replays a deterministic mock turn. |
+| M4 | Deterministic scenario rules and complete Versailles text-only flow | **Proposed**: the game reaches reflection under a fake provider with fixed tests. |
+| M5 | Embedding service, curated corpus, hybrid RAG and citation checks | **Proposed**: retrieval evaluation and no fabricated citation IDs. |
+| M6 | Real LLM prompt adapter, schemas, bounded repair and error recovery | **Proposed**: real local full turn with no duplicate state changes. |
+| M7 | Model/GPU benchmarks and 2–10 student load test | **Proposed**: select a stable profile and document limitations. |
+| M8 | Authentication, trusted ingress, observability and backup/restore | **Proposed**: security and restore evidence. |
+| M9 | Learner usability study and report iteration | **Proposed**: record feedback and an iterative improvement. |
+| Optional | ASR, TTS, voice caching and browser audio | **Proposed**; speech can be disabled without blocking text gameplay. |
 
-**Minimum demo target:** M0–M4 with a fake or simple local LLM response path. **Credible technical showcase:** M0–M7, with one good historical corpus. **Classroom-ready:** M0–M9, with security and actual concurrent-use evidence. Don't treat optional speech as a prerequisite for submitting a working teaching game.
+A credible technical showcase requires the future game, source corpus and evaluation work; classroom readiness also requires security, recovery and student validation. The current acceptance covers the inference foundation and M2 backend prototype only.
 
 ### Recommended issue / epic sequence
 
@@ -633,10 +425,10 @@ Estimates below are planning ranges for one developer, not commitments. The orig
 
 | Decision | Why | When to revisit |
 |---|---|---|
-| Two Compose projects (`ddu-backend`, `ddu-inference`) | Independent lifecycle from each other and AI-Stack | If moved to different physical hosts; keep same logical service split |
+| Separate application and inference repositories/Compose ownership | Independent lifecycle from each other and AI-Stack; only worker and model share the private network | If moved to different physical hosts; retain the logical service boundary |
 | Separate LLM/embedding/speech containers | Isolate dependencies and compute | If deployment complexity demonstrably exceeds value |
 | PostgreSQL job queue | Minimum extra infrastructure, atomic transaction semantics | If high-throughput fanout or many independent workers cause contention |
-| llama.cpp for starting LLM | Small configurable GGUF/CUDA server and JSON-compatible endpoint | When a particular model needs vLLM/SGLang or better batch throughput |
+| vLLM in Local-AI-API-LITE | Pinned model-serving image, revision and measured GPU profile live outside the app repository | If compatibility or repeatable benchmarks justify another independently owned serving runtime |
 | Embedding on CPU initially | Keep LLM VRAM resident | If measured query-embedding latency hurts UX and GPU headroom permits offload |
 | Hybrid PostgreSQL search | Good for named entities, dates and conceptual retrieval | If corpus/index scale or ranking quality justifies additional service |
 | No HNSW initially | Small filtered corpus may be faster/simpler via exact search | When query benchmark shows clear gain |
@@ -647,19 +439,25 @@ Estimates below are planning ranges for one developer, not commitments. The orig
 
 ---
 
-## 14. Immediate implementation checklist (first sessions)
+## 14. Implementation record and next work
 
-**Session A — isolate infra:** Confirm GPU in Linux containers; create `ddu_inference_bus`; locate/download one legal, known-compatible GGUF; start only llama.cpp server; run `/health`, `/v1/models`, a short Danish JSON response; observe peak VRAM; stop and start without any AI-Stack dependency. Record cold/warm timings and Docker image digest.
+The original checklist is retained here as a project progress record:
 
-**Session B — backend minimum:** Create repo tree; boot PostgreSQL and `api`/`worker` via independent Compose project; add Alembic, typed settings, a fake inference provider, minimal game-session table, turn-request table, and `/healthz`. Prove the API is alive with no inference.
+- **Infrastructure and model service — complete:** GPU access, private external network, pinned vLLM image/model revision, host runbook, model health, alias check, structured Danish diagnostic, no published model port, benchmarks, and lifecycle recovery were validated in Local-AI-API-LITE.
+- **Backend minimum — complete for the M2 prototype:** isolated PostgreSQL/API/worker Compose services, migrations, heartbeat diagnostics, deterministic fake turn flow, and external-inference client/probe are implemented in this repository.
+- **Durable turn behavior — implemented and covered:** capability-based sessions, idempotency, expected-turn conflicts, lease/retry handling, atomic completion, and replay.
+- **Frontend, complete scenario, source grounding, and student evaluation — not started:** these remain the next product milestones. M2 does not yet provide the Versailles teaching loop.
 
-**Session C — robust turn:** Add idempotency, expected-turn conflict, job claiming/leasing and one atomic state-transition commit. Test duplicate requests, browser abandonment, worker crash, LLM timeout and restart.
+### Next practical sequence
 
-**Session D — frontend:** Make the simplest Godot screen call session creation, submit a turn, poll for completion, display result and recover across refresh. Keep all formatting simple until the contract works.
+1. Build the Godot Web vertical slice and reconnect/replay interface.
+2. Author and validate a complete Versailles scenario with deterministic state transitions.
+3. Add a curated, licensed source corpus and evaluate retrieval and citation checks.
+4. Integrate model output into the turn pipeline only with bounded, validated state proposals.
+5. Harden authentication, retention, backups, recovery, ingress and classroom operations.
+6. Evaluate learning outcomes with students and record evidence-driven revisions.
 
-**Session E — scenario:** Add one scripted Versailles phase and one full ending. Only then introduce curated sources, embeddings and real generation.
-
-### Technical gates that must *not* be skipped
+### Future project gates that must *not* be skipped
 
 - Model supports quantized inference and schema-following *on this exact serving runtime*.
 - Model revision and embedding dimensions are recorded in the DB; model changes cannot silently invalidate existing vectors.
@@ -684,7 +482,7 @@ Possible technical problem questions: (1) how to preserve deterministic game sta
 
 **Source-derived from the previously provided architecture report:** Godot/FastAPI/PostgreSQL/pgvector split, deterministic event validation, source-grounded hybrid RAG, browser access through Serve/Funnel, scenario YAML, source/rubric evaluation and test categories. The earlier report's exact model recommendations and raw schema have been *revised* in this plan rather than blindly copied. Original user-provided file: `deep-research-report (9).md`.
 
-**Independent technical references verified on 27 October 2026:**
+**Independent technical references verified on 27 October 2026.** The llama.cpp links below support only the historical M1.5 baseline; vLLM in Local-AI-API-LITE is the current serving implementation.
 
 - Docker — cross-project external networks: https://docs.docker.com/compose/how-tos/networking/
 - Docker — Compose GPU service reservations: https://docs.docker.com/compose/how-tos/gpu-support/
@@ -696,4 +494,4 @@ Possible technical problem questions: (1) how to preserve deterministic game sta
 - Resemble AI — Chatterbox Multilingual/Danish: https://github.com/resemble-ai/chatterbox
 - Godot — Web export/audio constraints: https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html
 
-**Verification note:** The example Compose snippets are illustrative architecture blueprints; they have not been executed on the target machine, do not include completed application images, model weights, secrets, certificates or tested version locks. Final deployments must be validated with `docker compose config`, pinned images, smoke tests and real GPU benchmarks.
+**Verification note:** The backend Compose project was validated and the backend was exercised with inference both available and stopped on the target host. The current pinned vLLM image/model profile and GPU benchmarks are recorded in Local-AI-API-LITE. The game, scenario, retrieval and classroom sections remain proposed work and still require their own implementation and acceptance evidence.

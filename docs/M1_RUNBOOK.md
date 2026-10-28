@@ -1,50 +1,48 @@
-# M1 runbook: independent model inference + operational backend
+# Backend runbook and external inference diagnostics
 
 ## Scope
 
-The first milestone implements two Compose projects, a llama.cpp CUDA server definition, PostgreSQL 18, migration, health/readiness API, worker heartbeat, and an actual Danish schema-constrained generation probe. The existing AI-Stack is not referenced. The game, sessions, RAG and audio are intentionally deferred.
+This repository owns the history application: PostgreSQL, migrations, the FastAPI service, worker monitoring, and the app-specific Danish diagnostic. Model serving is owned by [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE), which runs a pinned vLLM image and model independently. The M2 fake turn flow works without that service.
 
-This source has not yet been executed against your NVIDIA host. A real GGUF and GPU smoke test remain required before claiming that M1 has passed on the target machine.
+The earlier M1/M1.5 llama.cpp and GGUF setup is historical and is not the current deployment. See [M1.5 validation](M1_5_VALIDATION.md) for measurements from that earlier setup.
 
-## Setup
+## Start the backend
 
-Follow [README](../README.md). Choose a compatible quantized *instruction-tuned* GGUF and confirm its chat template works under the selected llama.cpp image. The model directory must exist on the **Docker daemon's** host. Record the model's SHA256, license, quantization and version; don't ship model weights inside the repository.
+Follow the backend-only instructions in [README](../README.md). Create the external `ddu_inference_bus` network if it does not exist, copy `deployment/backend/.env.example` to `deployment/backend/.env`, set a long random database password, then validate and start only this repository's backend Compose project:
 
-Suggested starting settings are `LLM_CTX_SIZE=4096`, `LLM_PARALLEL=1`, and `LLM_GPU_LAYERS=99`. If VRAM is insufficient, lower context, model size or GPU layers; these are not guaranteed optimal values. Avoid GPU contention with existing AI-Stack jobs during first tests.
+```sh
+docker network inspect ddu_inference_bus >/dev/null 2>&1 || docker network create ddu_inference_bus
+cp deployment/backend/.env.example deployment/backend/.env
+# Edit deployment/backend/.env and set POSTGRES_PASSWORD.
+docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env config --quiet
+docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env up -d --build
+```
 
-The API is bound to host loopback, and only the backend worker joins the shared inference network. The worker polls `http://ddu-llm:8080/health` periodically and writes its result to PostgreSQL. The API reads that status from PostgreSQL rather than joining the inference network.
+`/healthz` checks process liveness. `/readyz` checks PostgreSQL only, so it remains ready when inference is unavailable. `/api/v1/status` reports the worker heartbeat and inference state separately. PostgreSQL and model ports are not published; the API binds to host loopback.
 
-Set `WORKER_STALE_SECONDS` higher than `WORKER_POLL_SECONDS` plus the 4-second health-check timeout. Leave additional margin for database writes and scheduling delays. Invalid settings stop the backend from starting, avoiding predictable stale reports between polls.
+## Optional real-model diagnostic
 
-## M1 acceptance gates
+Start Local-AI-API-LITE using its own runbook and configuration. It must join `ddu_inference_bus`, advertise the configured `LLM_MODEL_ALIAS` (default `ddu-narrator`), and have no published model port. The backend worker is the only backend service attached to that network.
 
-1. Create/inspect the `ddu_inference_bus` network without modifying any AI-Stack network.
-2. Both `docker compose ... config --quiet` commands succeed.
-3. Start `ddu-inference` while `ddu-backend` is stopped; the model's `/health` eventually returns status 200 and JSON `{"status":"ok"}`.
-4. Start backend; migration exits successfully, API and worker stay up; `/healthz` and `/readyz` return 200.
-5. `/api/v1/status` reports worker running and inference ready after heartbeat.
-6. Execute `python -m app.workers.probe` inside the worker container; inspect its schema-valid Danish output.
-7. Stop inference only: backend stays healthy while inference becomes degraded after a poll.
-8. Restart inference only: worker status recovers without backend restart.
-9. CI passes Python tests, database migration/integration tests and Compose validation.
-10. Verify `docker compose ps` / port listing: neither PostgreSQL nor inference publishes a host port.
+With both deployments running, run from this repository root:
+
+```sh
+bash scripts/m1_smoke.sh
+```
+
+The script checks backend and database health, the private model health endpoint, worker/model status, the history application's strict Danish response schema, and the deterministic fake M2 turn. The model diagnostic is separate from M2 session processing; M2 turn results continue to come from the fake provider.
+
+To check inference failure and recovery, stop and restart the model through the Local-AI-API-LITE project only. The backend and database should remain up; after the heartbeat poll, `/api/v1/status` reports `degraded`, then returns to `ready` when the model is available again. `/readyz` stays 200 because it reflects database readiness.
 
 ## Troubleshooting
 
-- **GPU errors:** Confirm `nvidia-smi` on the host and that NVIDIA Container Toolkit grants GPU access to Docker.
-- **Container starts but model unhealthy:** llama.cpp `/health` can return 503 while loading. Check inference logs and model file paths.
-- **Worker degraded:** Verify both Compose deployments attached the external network and `ddu-llm` resolves from a diagnostic container on it.
-- **Database migration failed:** Read `migrate` logs, verify `postgres` readiness, correct credentials, and the PostgreSQL volume. Note changing POSTGRES_PASSWORD in env does not change a previously initialized database user's password.
-- **Probe rejects JSON:** Check model instruction-tuning/chat template and server's `response_format` schema support. Do not silently replace malformed output with success.
-- **VRAM exhausted:** Shut down competing workloads safely and adjust model/quantization/offload/context.
+- **Model health fails:** check the Local-AI-API-LITE service logs, its Docker network attachment, model loading, and GPU availability.
+- **Wrong model alias:** confirm `LLM_MODEL_ALIAS` matches an ID returned by the external server's `/v1/models` endpoint.
+- **Worker status is stale:** check the worker container, database connectivity, and `WORKER_POLL_SECONDS` / `WORKER_STALE_SECONDS` settings.
+- **Danish probe rejects output:** inspect probe errors and confirm the external service supports strict JSON schema output and the configured chat-template options. Invalid, empty, and truncated output remains a failure.
+- **Database migration failed:** inspect `migrate` logs and verify PostgreSQL readiness and credentials. Changing `POSTGRES_PASSWORD` does not change the password of an already initialized database volume.
+- **VRAM exhausted:** adjust the externally owned model serving profile or stop competing workloads using Local-AI-API-LITE's runbook.
 
-## Safety boundaries and remaining work
+## Safety and remaining work
 
-The `/api/v1/status` endpoint is intentionally unauthenticated but only bound to localhost in M1. Do not expose it publicly; implement access controls before classroom deployment. The database application role is also the migration role in M1: split least-privileged runtime credentials from the migration account before production. Add database backup/recovery, durable turns, sessions and authentication in the next milestone.
-
-Docker image tags and Python dependency version ranges are **not** immutable. Once tested, pin digests and lock dependencies. Document real cold-start time, p95 response time, inference GPU memory consumption and actual model checksum.
-
-Relevant upstream documentation:
-- https://docs.docker.com/compose/how-tos/networking/
-- https://docs.docker.com/compose/how-tos/gpu-support/
-- https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
+The diagnostic `/api/v1/status` endpoint is unauthenticated and must not be exposed through a public gateway. The M2 capability mechanism is a local development boundary, not classroom authentication. Add TLS, a recovery and rotation policy, rate limits, retention/deletion controls, least-privileged runtime database credentials, backup/restore, and a security review before classroom deployment.
