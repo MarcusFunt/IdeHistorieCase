@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app", "app.ai", "app.core", "app.db", "app.workers"]
+packages = ["app", "app.ai", "app.core", "app.db", "app.game", "app.workers"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

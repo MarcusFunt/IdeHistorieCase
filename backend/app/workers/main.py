@@ -1,4 +1,4 @@
-"""M1 inference readiness monitor; durable turn processing arrives in M2."""
+"""Independent inference monitor and M2 durable fake-turn worker."""
 import asyncio
 import logging
 
@@ -10,6 +10,7 @@ from app.ai.llm import LlamaClient
 from app.core.settings import WORKER_HEALTH_TIMEOUT_SECONDS, get_settings
 from app.db.connection import engine
 from app.db.models import ServiceHeartbeat
+from app.game.turn_worker import run_turn_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ async def record_heartbeat(inference_ready: bool, message: str) -> None:
         await connection.execute(statement)
 
 
-async def run() -> None:
+async def monitor_inference() -> None:
     settings = get_settings()
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(WORKER_HEALTH_TIMEOUT_SECONDS), trust_env=False
@@ -48,6 +49,10 @@ async def run() -> None:
             else:
                 logger.info("worker heartbeat: inference_ready=%s", ready)
             await asyncio.sleep(settings.worker_poll_seconds)
+
+
+async def run() -> None:
+    await asyncio.gather(monitor_inference(), run_turn_worker())
 
 
 if __name__ == "__main__":

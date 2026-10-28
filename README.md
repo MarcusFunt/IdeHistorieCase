@@ -2,7 +2,9 @@
 
 **Implemented in milestone M1:** FastAPI liveness/readiness, PostgreSQL 18 with Alembic migration, independent inference-health worker, a real Danish structured-generation diagnostic, separate Docker Compose projects, and automated unit/integration tests.
 
-**Not yet implemented:** Godot game, sessions, turn queue, deterministic gameplay, RAG, embedding/STT/TTS containers, and classroom authentication. The code is not yet a playable game.
+**M2 in progress:** session-scoped access, a durable turn queue, replay, and a deterministic fake provider. See the [M2 development guide](docs/M2_DEVELOPMENT.md).
+
+**Not yet implemented:** Godot game, complete deterministic gameplay, RAG, embedding/STT/TTS containers, and classroom authentication. The code is not yet a playable game.
 
 ## Deployments
 

@@ -8,8 +8,10 @@ from sqlalchemy import select, text
 from app.core.settings import get_settings
 from app.db.connection import engine, session_factory
 from app.db.models import ServiceHeartbeat
+from app.game.routes import router as game_router
 
 app = FastAPI(title="DDU History Game Backend", version="0.1.0")
+app.include_router(game_router)
 
 
 async def database_ready() -> bool:
