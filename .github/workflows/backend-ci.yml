@@ -1,4 +1,4 @@
-name: M1 backend and Compose CI
+name: Backend CI
 
 on:
   push:
@@ -41,9 +41,7 @@ jobs:
       - name: Ruff
         run: |
           ruff check backend
-          ruff check --select E4,E7,E9,F,I scripts/shared_inference_smoke.py scripts/m2_fake_smoke.py tests
-      - name: Shared inference protocol tests
-        run: python -m unittest discover -s tests -v
+          ruff check --select E4,E7,E9,F,I scripts/m2_fake_smoke.py backend/tests
       - name: Unit and contract tests
         working-directory: backend
         run: pytest -q -k "not heartbeat_insert_and_update"
@@ -57,13 +55,10 @@ jobs:
         run: |
           pytest -q tests/test_integration.py
           pytest -q tests/test_m2_integration.py
-      - name: Validate both Compose projects
+      - name: Validate backend Compose project
         run: |
           cp deployment/backend/.env.example deployment/backend/.env
-          cp deployment/inference/.env.example deployment/inference/.env
           docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env config --quiet
-          docker compose -f deployment/inference/compose.yaml --env-file deployment/inference/.env config --quiet
-
       - name: Build and boot Docker backend without inference
         run: |
           set -eu

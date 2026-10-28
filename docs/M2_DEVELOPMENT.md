@@ -6,10 +6,7 @@ not yet the playable Versailles scenario or a classroom deployment.
 
 ## Start and exercise
 
-Follow the backend setup in the [M1 runbook](M1_RUNBOOK.md): create the
-external `ddu_inference_bus` network, configure the backend environment,
-then start the backend Compose project. The inference project need not be
-running. After migration and startup:
+Follow the backend-only setup in the [README](../README.md) and [backend runbook](M1_RUNBOOK.md). Creating `ddu_inference_bus` lets Compose resolve its declared external network, but no inference service is required for this fake flow. Configure the backend environment and start only the backend Compose project. After migration and startup:
 
 ```sh
 python scripts/m2_fake_smoke.py --base-url http://127.0.0.1:8000
