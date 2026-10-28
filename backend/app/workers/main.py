@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 
 from app.ai.llm import LlamaClient
-from app.core.settings import get_settings
+from app.core.settings import WORKER_HEALTH_TIMEOUT_SECONDS, get_settings
 from app.db.connection import engine
 from app.db.models import ServiceHeartbeat
 
@@ -34,7 +34,9 @@ async def record_heartbeat(inference_ready: bool, message: str) -> None:
 
 async def run() -> None:
     settings = get_settings()
-    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), trust_env=False) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(WORKER_HEALTH_TIMEOUT_SECONDS), trust_env=False
+    ) as client:
         llm = LlamaClient(settings.llm_base_url, settings.llm_model_alias, client)
         while True:
             ready = await llm.is_ready()

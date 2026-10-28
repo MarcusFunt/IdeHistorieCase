@@ -14,6 +14,8 @@ Suggested starting settings are `LLM_CTX_SIZE=4096`, `LLM_PARALLEL=1`, and `LLM_
 
 The API is bound to host loopback, and only the backend worker joins the shared inference network. The worker polls `http://ddu-llm:8080/health` periodically and writes its result to PostgreSQL. The API reads that status from PostgreSQL rather than joining the inference network.
 
+Set `WORKER_STALE_SECONDS` higher than `WORKER_POLL_SECONDS` plus the 4-second health-check timeout. Leave additional margin for database writes and scheduling delays. Invalid settings stop the backend from starting, avoiding predictable stale reports between polls.
+
 ## M1 acceptance gates
 
 1. Create/inspect the `ddu_inference_bus` network without modifying any AI-Stack network.

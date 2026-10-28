@@ -56,7 +56,7 @@ For a concrete first test on the RTX 3060, a compact Qwen3.5-4B Q4_K_M GGUF is a
 bash scripts/download_m1_model.sh /srv/ddu-models
 ```
 
-The script pins a Hugging Face commit and verifies a published SHA-256. It downloads roughly 2.74 GB and is optional; any compatible GGUF can be selected in the inference environment file. For Qwen3.5, verify the model's chat template and disable extended thinking during short structured-output probes if necessary. The downloaded weights are outside Git and separate from AI-Stack.
+The script pins a Hugging Face commit and verifies a published SHA-256. It downloads roughly 2.74 GB and is optional; any compatible GGUF can be selected in the inference environment file. The probe requests that the model's chat template disable extended thinking, leaving its output budget for the short JSON response. The downloaded weights are outside Git and separate from AI-Stack.
 
 ## Independent failure test
 
