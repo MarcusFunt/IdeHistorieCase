@@ -6,16 +6,21 @@ import sys
 import httpx
 from pydantic import ValidationError
 
-from app.ai.llm import LlamaClient
+from app.ai.llm import InferenceClient
 from app.core.settings import get_settings
 
 
 async def main() -> int:
     settings = get_settings()
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0), trust_env=False) as client:
-        llm = LlamaClient(settings.llm_base_url, settings.llm_model_alias, client)
+        llm = InferenceClient(
+            settings.llm_base_url,
+            settings.llm_model_alias,
+            client,
+            enable_thinking=settings.llm_enable_thinking,
+        )
         if not await llm.is_ready():
-            print("INFERENCE_NOT_READY: /health did not report model ready", file=sys.stderr)
+            print("INFERENCE_NOT_READY: /health did not return HTTP 200", file=sys.stderr)
             return 2
         try:
             reply = await llm.generate_danish_probe()
