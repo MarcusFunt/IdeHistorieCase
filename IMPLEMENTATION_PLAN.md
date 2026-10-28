@@ -27,7 +27,8 @@ No complete game loop, continuously listening assistant, multiplayer negotiation
 3. A deterministic, authenticated fake turn completes and replays without model inference. **Implemented and validated.**
 4. The worker's real Danish diagnostic validates a strict application-owned JSON schema against the external model. **Accepted on the target host.**
 5. No PostgreSQL or model port is published; the application API is loopback-bound. **Verified.**
-6. A student test demonstrates a learning objective with a complete game. **Not implemented.**
+6. Rollback to the original pinned llama.cpp image/model and return to vLLM work without resetting the backend database. **Tested on the target host.**
+7. A student test demonstrates a learning objective with a complete game. **Not implemented.**
 
 ## 1. Architecture, deployment units and trust boundaries
 
@@ -71,7 +72,7 @@ The proposed Godot client, scenario content, RAG corpus, speech services, and fu
 
 ### 3.1 External inference service
 
-The app repository no longer contains an inference Compose file or model download utility. Local-AI-API-LITE owns the pinned vLLM image, the `RedHatAI/Qwen3.5-4B-quantized.w4a16` model revision, GPU and serving limits, the model cache, and the current two-workload diagnostics. Follow that repository's runbook and benchmark record for model setup and lifecycle operations.
+The app repository no longer contains an inference Compose file or model download utility. Local-AI-API-LITE owns the pinned vLLM image, the `RedHatAI/Qwen3.5-4B-quantized.w4a16` model revision, GPU and serving limits, the model cache, and the current two-workload diagnostics. Follow that repository's runbook and benchmark record for model setup and lifecycle operations. The historical llama.cpp rollback and return to vLLM have also been exercised with the application database volume preserved.
 
 Create or inspect the external Docker bridge `ddu_inference_bus` when preparing the host. Do not delete or recreate it while any attached service is running. The model port is not published to the host.
 
@@ -443,7 +444,7 @@ A credible technical showcase requires the future game, source corpus and evalua
 
 The original checklist is retained here as a project progress record:
 
-- **Infrastructure and model service — complete:** GPU access, private external network, pinned vLLM image/model revision, host runbook, model health, alias check, structured Danish diagnostic, no published model port, benchmarks, and lifecycle recovery were validated in Local-AI-API-LITE.
+- **Infrastructure and model service — complete:** GPU access, private external network, pinned vLLM image/model revision, host runbook, model health, alias check, structured Danish diagnostic, no published model port, benchmarks, lifecycle recovery, and a rollback to the original llama.cpp image/model without database reset were validated in Local-AI-API-LITE.
 - **Backend minimum — complete for the M2 prototype:** isolated PostgreSQL/API/worker Compose services, migrations, heartbeat diagnostics, deterministic fake turn flow, and external-inference client/probe are implemented in this repository.
 - **Durable turn behavior — implemented and covered:** capability-based sessions, idempotency, expected-turn conflicts, lease/retry handling, atomic completion, and replay.
 - **Frontend, complete scenario, source grounding, and student evaluation — not started:** these remain the next product milestones. M2 does not yet provide the Versailles teaching loop.
