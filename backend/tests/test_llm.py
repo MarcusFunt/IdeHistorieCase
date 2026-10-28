@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from pydantic import ValidationError
@@ -40,6 +42,28 @@ async def test_structured_probe_validates_output_schema():
         result = await LlamaClient("http://llm:8080", "ddu-narrator", http).generate_danish_probe()
         assert result.language == "da"
         assert "garantier" in result.reply
+
+
+@pytest.mark.asyncio
+async def test_probe_returns_json_when_model_supports_thinking_mode():
+    def handler(request):
+        body = json.loads(request.content)
+        if body.get("chat_template_kwargs", {}).get("enable_thinking") is not False:
+            return httpx.Response(
+                200,
+                json={"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {
+                "content": '{"language":"da","reply":"Fred gennem gensidige garantier."}'
+            }}]},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await LlamaClient("http://llm:8080", "ddu-narrator", http).generate_danish_probe()
+        assert result.language == "da"
+        assert result.reply == "Fred gennem gensidige garantier."
 
 
 @pytest.mark.asyncio

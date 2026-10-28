@@ -1,9 +1,12 @@
 """Settings originate from container environment; no secrets are embedded in source."""
 from functools import lru_cache
+from typing import Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
+
+WORKER_HEALTH_TIMEOUT_SECONDS = 4.0
 
 
 class Settings(BaseSettings):
@@ -17,6 +20,15 @@ class Settings(BaseSettings):
     llm_model_alias: str = "ddu-narrator"
     worker_poll_seconds: float = Field(default=10.0, ge=1.0, le=600.0)
     worker_stale_seconds: int = Field(default=45, ge=2, le=3600)
+
+    @model_validator(mode="after")
+    def validate_worker_timing(self) -> Self:
+        if self.worker_stale_seconds <= self.worker_poll_seconds + WORKER_HEALTH_TIMEOUT_SECONDS:
+            raise ValueError(
+                "worker_stale_seconds must exceed worker_poll_seconds plus the "
+                "4-second health-check timeout; allow extra time for database writes"
+            )
+        return self
 
     @property
     def database_url(self) -> URL:

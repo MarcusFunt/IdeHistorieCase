@@ -43,6 +43,8 @@ class LlamaClient:
             "stream": False,
             "temperature": 0,
             "max_tokens": 180,
+            # Keep the short output budget for the reply, not model reasoning.
+            "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
                 {
                     "role": "system",
