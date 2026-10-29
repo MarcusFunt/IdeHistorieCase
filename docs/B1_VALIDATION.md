@@ -56,7 +56,7 @@ PR #7 was merged to `main` as commit `312346e8510b3f85528157979ae57cd57957a70c`.
 
 ## CI reliability follow-up — 2026-10-29
 
-PR [#8](https://github.com/MarcusFunt/IdeHistorieCase/pull/8), stacked on PR #7, adds current Node 24 GitHub Actions releases, a pinned `uv` install from `backend/uv.lock`, an explicit pytest fixture loop scope, clearer failure-only Compose logs, and manual workflow dispatch. The full [Backend CI run 40893533431](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40893533431) passed for PR head `39348393030ba497ce2b9e656e7bab5c9b7d67d0` (the runner tested merge ref `844fdcd3fbbe436d009fa2473d2fe8cc902cf108`). It installed uv 0.13.5 and executed every existing job step:
+PR [#8](https://github.com/MarcusFunt/IdeHistorieCase/pull/8), stacked on PR #7, adds current Node 24 GitHub Actions releases, a pinned `uv` install from `backend/uv.lock`, an explicit pytest fixture loop scope, clearer failure-only Compose logs, and manual workflow dispatch. CI installs with `uv sync --frozen` and every `uv run` uses `--locked`, so neither step can update the committed lock. The full [Backend CI run 40893533431](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40893533431) passed for PR head `39348393030ba497ce2b9e656e7bab5c9b7d67d0` (the runner tested merge ref `844fdcd3fbbe436d009fa2473d2fe8cc902cf108`). It installed uv 0.13.5 and executed every existing job step:
 
 - Scenario validation: 2 manifests; bundle verification: 1 pin.
 - Ruff passed. Unit/contract tests: 95 passed, 37 database-gated skipped, 1 deselected.
