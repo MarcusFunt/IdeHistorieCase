@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,11 @@ def _parser() -> argparse.ArgumentParser:
     validate_many = commands.add_parser("validate-all", help="validate manifests in a directory")
     validate_many.add_argument("directory", type=Path)
 
+    verify_pins = commands.add_parser(
+        "verify-bundle-pins", help="verify byte-exact pins for authored scenario bundles"
+    )
+    verify_pins.add_argument("directory", type=Path)
+
     import_command = commands.add_parser("import", help="insert one immutable scenario version")
     import_command.add_argument("path", type=Path)
     import_command.add_argument("--dry-run", action="store_true")
@@ -52,6 +58,41 @@ def _summary(loaded) -> str:
         f"(schema {definition.schema_version}, sha256:{loaded.content_hash}{bundle}; "
         f"{len(definition.phases)} phases, {len(definition.dilemmas)} dilemmas)"
     )
+
+
+def _verify_bundle_pins(directory: Path) -> tuple[int, int]:
+    scenarios = validate_all(directory)
+    expected_pins: set[Path] = set()
+    verified = 0
+    for loaded in scenarios:
+        if loaded.bundle_hash is None:
+            continue
+        if loaded.path is None:
+            raise ValueError("scenario loader did not retain a manifest path")
+        pin_path = loaded.path.with_name(f"{loaded.path.stem}_bundle.sha256")
+        expected_pins.add(pin_path)
+        if not pin_path.is_file():
+            raise ValueError(f"missing required bundle pin: {pin_path}")
+        try:
+            pinned_hash = pin_path.read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError) as exc:
+            raise ValueError(f"cannot read bundle pin {pin_path}: {exc}") from exc
+        if re.fullmatch(r"[0-9a-f]{64}", pinned_hash) is None:
+            raise ValueError(f"malformed SHA-256 bundle pin: {pin_path}")
+        if pinned_hash != loaded.bundle_hash:
+            raise ValueError(
+                f"bundle hash mismatch for {loaded.path}: "
+                f"pin {pinned_hash}, computed {loaded.bundle_hash}"
+            )
+        verified += 1
+
+    present_pins = {
+        path for path in directory.rglob("*_bundle.sha256") if path.is_file()
+    }
+    orphaned_pins = sorted(present_pins - expected_pins)
+    if orphaned_pins:
+        raise ValueError(f"bundle pin has no matching scenario bundle: {orphaned_pins[0]}")
+    return verified, len(scenarios)
 
 async def _import_command(path: Path, dry_run: bool) -> int:
     loaded = load_scenario(path)
@@ -174,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
             for loaded in scenarios:
                 print(_summary(loaded))
             print(f"validated {len(scenarios)} manifest(s)")
+            return 0
+        if args.command == "verify-bundle-pins":
+            pins, manifests = _verify_bundle_pins(args.directory)
+            print(f"verified {pins} bundle pin(s) across {manifests} manifest(s)")
             return 0
         return asyncio.run(_run_database_command(args))
     except (ValueError, OSError) as exc:
