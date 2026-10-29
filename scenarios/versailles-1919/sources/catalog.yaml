@@ -1,0 +1,285 @@
+version: 1
+scenario_slug: versailles-1919
+rights_policy: "All records are link-only until reuse is reviewed for Denmark and the intended educational deployment."
+sources:
+  - id: R01
+    title: "Treaty of Versailles, full treaty and article index"
+    document_date: "1919-06-28"
+    institution: "U.S. Department of State, Office of the Historian (FRUS 1919 Paris Peace Conference, vol. XIII)"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv13/toc"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; official table of contents opened 2026-10-29."
+    rights_status: pending
+    use: primary_legal_oracle_postgame
+    limitations: "Separate the 1919 treaty text from editorial notes published later; cite article-level text only."
+  - id: R02
+    title: "Treaty of Versailles, Part VIII, Articles 231-244"
+    document_date: "1919-06-28"
+    institution: "U.S. Department of State, Office of the Historian (FRUS vol. XIII); Yale Avalon Project"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv13/ch17subch1"
+    alternate_urls: ["https://avalon.law.yale.edu/imt/partviii.asp"]
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; FRUS treaty text opened 2026-10-29."
+    rights_status: pending
+    use: primary_legal_oracle_postgame
+    limitations: "Article 231 is treaty responsibility wording for loss and damage, not an uncontested account of sole historical causation."
+  - id: R03
+    title: "Reparation Commission schedule of payments"
+    document_date: "1921-05-05"
+    institution: "Reparation Commission, reproduced in U.S. Department of State FRUS vol. XIII"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv13/ch34subch4"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; schedule opened 2026-10-29."
+    rights_status: pending
+    use: postgame_only
+    limitations: "The 132 billion gold-mark total is a 1921 schedule, not a June 1919 treaty amount."
+  - id: R04
+    title: "Woodrow Wilson's Fourteen Points address"
+    document_date: "1918-01-08"
+    institution: "U.S. National Archives"
+    url: "https://www.archives.gov/milestone-documents/president-woodrow-wilsons-14-points"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; NARA transcript page opened 2026-10-29."
+    rights_status: pending
+    use: period_statement
+    limitations: "Contrast the stated principles with later interpretation and practice."
+  - id: R05
+    title: "Covenant of the League of Nations"
+    document_date: "1919-06-28"
+    institution: "United Nations Office at Geneva"
+    url: "https://www.ungeneva.org/en/about/league-of-nations/covenant"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; UN Geneva text opened 2026-10-29."
+    rights_status: pending
+    use: primary_legal_oracle_postgame
+    limitations: "The text documents commitments; it does not establish the League's later effectiveness."
+  - id: R06
+    title: "Treaty of Versailles, Part III: political clauses for Europe"
+    document_date: "1919-06-28"
+    institution: "Yale Avalon Project"
+    url: "https://avalon.law.yale.edu/imt/partiii.asp"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; Yale text opened 2026-10-29."
+    rights_status: pending
+    use: primary_legal_oracle_postgame
+    limitations: "Use article anchors for the Rhineland, Saar, Alsace-Lorraine, Poland and Danzig; compare FRUS text if a dispute appears."
+  - id: R07
+    title: "Council of Four minutes, selected records from 20 March to 24 May 1919"
+    document_date: "1919-03-20/1919-05-24"
+    institution: "U.S. Department of State, Office of the Historian (FRUS vol. V)"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv05"
+    example_url: "https://history.state.gov/historicaldocuments/frus1919Parisv05/d22"
+    status: selected_text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; 25 April meeting record opened 2026-10-29."
+    rights_status: pending
+    use: restricted_conference_participant_context
+    limitations: "Minutes record or summarize speech; they are not omniscient accounts of national interests and are not automatically available to affected delegations."
+  - id: R08
+    title: "Council of Four minutes and German exchange, selected records"
+    document_date: "1919-05-24/1919-06-28"
+    institution: "U.S. Department of State, Office of the Historian (FRUS vol. VI)"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv06"
+    index_url: "https://history.state.gov/historicaldocuments/frus1919Parisv06/comp2"
+    status: index_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; select dated documents before any future ingestion."
+    rights_status: pending
+    use: selected_record_only
+    limitations: "Do not ingest the full volume indiscriminately; document and access dates must be attached to each selection."
+  - id: R09
+    title: "German delegation observations on the conditions of peace"
+    document_date: "1919-05-29"
+    institution: "Brockdorff-Rantzau to Clemenceau, U.S. Department of State FRUS vol. VI, document 89"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv06/ch90"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; FRUS heading and date opened 2026-10-29."
+    rights_status: pending
+    use: from_1919_05_29_restricted_exchange
+    limitations: "Written after Allied terms were presented; distinguish the German delegation's advocacy from verified legal conclusions."
+  - id: R10
+    title: "Preliminary Peace Conference Protocol No. 5, plenary session of 28 April 1919"
+    document_date: "1919-04-28"
+    institution: "U.S. Department of State, Office of the Historian (FRUS vol. III)"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv03/d7"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "FRUS Protocol No. 5 opened and checked; Makino amendment and statement appear on pp. 289-291."
+    text_anchor: "FRUS vol. III, pp. 289-291; Japanese delegation amendment for equality of all nations."
+    rights_status: pending
+    use: conference_participant_context
+    limitations: "Describe the proposal and debate from the record; do not invent unanimity or motives."
+  - id: R11
+    title: "Council of Four minutes, 25 April 1919"
+    document_date: "1919-04-25"
+    institution: "U.S. Department of State, Office of the Historian (FRUS vol. V, document 22)"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv05/d22"
+    status: selected_text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; FRUS meeting record opened 2026-10-29."
+    rights_status: pending
+    use: restricted_conference_minutes
+    limitations: "The Council minutes are confidential conference records and must remain distinct from the Chinese delegation's separately submitted statement."
+  - id: R11A
+    title: "Chinese delegation statement appended to the 25 April 1919 Council record"
+    document_date: "1919-04-25"
+    institution: "Chinese delegation statement in U.S. Department of State FRUS vol. V, document 22 appendix"
+    url: "https://history.state.gov/historicaldocuments/frus1919Parisv05/d22"
+    status: reference_only
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "FRUS record identifies a distinct Chinese delegation submission; the appendix text and rights have not been checked."
+    rights_status: pending
+    use: submitted_delegation_statement
+    limitations: "This is the delegation's submitted statement, not confidential Council minutes; check the full appendix before passage-level use."
+  - id: R12
+    title: "Treaty of Versailles, Part IV: German rights and interests outside Germany"
+    document_date: "1919-06-28"
+    institution: "Yale Avalon Project"
+    url: "https://avalon.law.yale.edu/imt/partiv.asp"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; Yale text opened 2026-10-29."
+    rights_status: pending
+    use: primary_legal_oracle_postgame
+    limitations: "Article 156 concerns German rights in Shandong/Kiaochow; it is not a transfer of all Chinese sovereignty over Shandong."
+  - id: R13
+    title: "The Shantung Question"
+    document_date: "1919"
+    institution: "Chinese delegation; Library of Congress digitized catalog"
+    url: "https://www.loc.gov/item/19017348/"
+    status: catalogue_verified_selected_pages_pending
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; Library of Congress item returned HTTP 403 to this client on 2026-10-29."
+    rights_status: pending
+    use: link_only_until_page_review
+    limitations: "About 191 pages; manually compare selected pages and OCR before grounding claims."
+  - id: R14
+    title: "Chihli Citizens' Convention protest telegram, FO 608/210/3"
+    document_date: "1919-05-17"
+    institution: "UK National Archives education transcript"
+    url: "https://www.nationalarchives.gov.uk/education/resources/may-fourth-movement-1919/may-fourth-movement-1919-source-4b/"
+    status: reference_only_access_blocked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; page returned HTTP 403 to this client on 2026-10-29."
+    rights_status: pending
+    use: link_only
+    limitations: "Do not quote or copy until access, transcript accuracy and reuse rights are reviewed."
+  - id: R15
+    title: "Treaty of Versailles, Part V: military, naval and air clauses"
+    document_date: "1919-06-28"
+    institution: "Yale Avalon Project"
+    url: "https://avalon.law.yale.edu/imt/partv.asp"
+    status: text_checked
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; Yale text opened 2026-10-29."
+    rights_status: pending
+    use: primary_legal_oracle_postgame
+    limitations: "Article 160 sets the army ceiling at 100,000 after the transition deadline; Article 173 abolishes conscription; Article 198 contains the air-service restriction."
+  - id: R16
+    title: "Treaty between the Principal Allied and Associated Powers and Poland"
+    document_date: "1919-06-28"
+    institution: "U.S. Government Printing Office; Library of Congress digitized edition"
+    url: "https://www.loc.gov/item/19026812/"
+    status: catalogue_verified_page_review_pending
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; selected articles not checked for this implementation."
+    rights_status: verify_for_Denmark
+    use: link_only_until_page_review
+    limitations: "Library of Congress describes the digitized collection's reuse status; verify jurisdiction and page-level treaty anchors."
+  - id: R17
+    title: "Lloyd George's Fontainebleau Memorandum"
+    document_date: "1919-03-25"
+    institution: "Official release discussed in UK Hansard; scholarly discussion in Diplomacy & Statecraft"
+    url: "https://hansard.parliament.uk/commons/1922-03-27/debates/38f741df-9e5c-436e-8654-2ff2e6a17b25/ParisConference1919%28PrimeMinisterSMemorandum%29"
+    secondary_url: "https://www.tandfonline.com/doi/full/10.1080/09592296.2019.1619039"
+    status: lead_full_text_unverified
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; full authoritative memorandum text was not verified."
+    rights_status: pending
+    use: research_lead_only
+    limitations: "Do not reproduce its wording, invent a quotation or use as a player-facing citation until an authoritative full text is located."
+  - id: R18
+    title: "The Economic Consequences of the Peace"
+    document_date: "1919/1920"
+    institution: "John Maynard Keynes; Project Gutenberg digitization"
+    url: "https://www.gutenberg.org/files/15776/15776-h/15776-h.htm"
+    status: full_text_available_secondary_interpretation
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; post-conference criticism, not a neutral technical finding."
+    rights_status: public_domain_claim_US_only
+    use: postgame_only
+    limitations: "Not available to a spring 1919 character; rights and translation status depend on jurisdiction."
+  - id: R19
+    title: "U.S. Senate rejection of the Treaty of Versailles"
+    document_date: "1919-11/1920-03"
+    institution: "U.S. Senate Historical Office"
+    url: "https://www.senate.gov/about/powers-procedures/treaties/senate-rejects-treaty-of-versailles.htm"
+    related_url: "https://www.visitthecapitol.gov/artifact/treaty-peace-germany-reservations"
+    status: retrospective_institutional_account
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; use only for postgame chronology."
+    rights_status: pending
+    use: postgame_only
+    limitations: "A 1919 player may anticipate ratification difficulty but cannot know the future Senate vote as a fact."
+  - id: R20
+    title: "The Treaty of Versailles: a centenary briefing"
+    document_date: "2019"
+    institution: "UK House of Lords Library"
+    url: "https://lordslibrary.parliament.uk/research-briefings/lln-2019-0079/"
+    status: secondary_context
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; secondary chronology cross-check."
+    rights_status: pending
+    use: postgame_context_only
+    limitations: "Not a primary source for invented dialogue or exact treaty language."
+  - id: R21
+    title: "British treaty original, FO 93/36/76"
+    document_date: "1919-06-28"
+    institution: "UK National Archives"
+    url: "https://www.nationalarchives.gov.uk/explore-the-collection/stories/the-treaty-of-versailles/"
+    status: archive_story_and_facsimile_available
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; authenticate edition and facsimile against archive record."
+    rights_status: image_reuse_pending
+    use: link_only_until_image_rights_review
+    limitations: "Reproduced manuscript images may require separate reuse permission."
+  - id: R22
+    title: "Chinese students' overseas petition, FO 608/210/3"
+    document_date: "1919-05-07"
+    institution: "UK National Archives education transcript"
+    url: "https://www.nationalarchives.gov.uk/education/resources/may-fourth-movement-1919/may-fourth-movement-1919-source-4a/"
+    status: reference_only
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; transcript accuracy and reuse remain pending."
+    rights_status: pending
+    use: link_only
+    limitations: "Do not quote or copy pending transcript and rights review."
+  - id: R23
+    title: "Treaty of Versailles presented to the German delegation"
+    document_date: "1919-05-07"
+    institution: "U.S. Holocaust Memorial Museum, Holocaust Encyclopedia timeline"
+    url: "https://encyclopedia.ushmm.org/content/en/timeline-event/holocaust/before-1933/treaty-of-versailles-presented-to-german-delegation"
+    status: secondary_chronology_cross_check
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; use FRUS records for decisive details."
+    rights_status: pending
+    use: postgame_chronology_cross_check
+    limitations: "Retrospective timeline, not a 1919 negotiating transcript."
+  - id: R24
+    title: "Paris Peace Conference, 1919"
+    document_date: "1919/retired_overview"
+    institution: "U.S. Department of State, Office of the Historian"
+    url: "https://history.state.gov/milestones/1914-1920/paris-peace"
+    status: retired_secondary_overview
+    reviewer: "Automated research pass; human source and rights review pending."
+    status_basis: "Research plan; page is marked retired and not maintained."
+    rights_status: pending
+    use: postgame_context_only
+    limitations: "Use dated FRUS primary documents rather than this page for decisive details."

@@ -45,10 +45,9 @@ The worker claims queued or expired requests with PostgreSQL row locks, uses a
 provider runs outside the transaction with a 30-second timeout. Completion
 checks the current lease and session turn and commits the result, event and
 state change atomically. The worker continues to report inference health
-separately. Generated replies are placeholders, not historical adjudication.
+separately. Generated replies are placeholders, not historical adjudication. Authored sessions may accept validated deterministic state events; issue reactions are labeled as illustrative and qualitative. The interpreter protocol is a seam for a future semantic provider, not an LLM integration.
 
 This capability mechanism is a local development boundary, not complete
 classroom authentication. Add TLS, a capability recovery and rotation policy,
 rate limits, retention/deletion controls and a production security review
-before exposing the API beyond trusted local testing. Real inference, authored
-game rules, sources, Godot and full scenario play remain later work.
+before exposing the API beyond trusted local testing. Real inference, approved source passages, evidence-backed dialogue, Godot, teacher review and classroom deployment remain later work. Deterministic authored events are exercised by the scenario runtime tests.

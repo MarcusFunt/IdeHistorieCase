@@ -37,12 +37,25 @@ class ServiceHeartbeat(Base):
 
 class ScenarioVersion(Base):
     __tablename__ = "scenario_versions"
-    __table_args__ = (UniqueConstraint("slug", "version"),)
+    __table_args__ = (
+        UniqueConstraint("slug", "version"),
+        Index("uq_scenario_versions_active_slug", "slug", unique=True, postgresql_where=text("is_active")),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     slug: Mapped[str] = mapped_column(String(80), nullable=False)
     version: Mapped[str] = mapped_column(String(32), nullable=False)
     initial_state: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    schema_version: Mapped[int | None] = mapped_column(Integer)
+    definition: Mapped[dict | None] = mapped_column(JSONB)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    bundle_hash: Mapped[str | None] = mapped_column(String(64))
+    behavior_rules: Mapped[dict | None] = mapped_column(JSONB)
+    evidence_policy: Mapped[dict | None] = mapped_column(JSONB)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class GameSession(Base):
@@ -54,6 +67,7 @@ class GameSession(Base):
         PG_UUID(as_uuid=True), ForeignKey("scenario_versions.id"), nullable=False
     )
     capability_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    player_role_id: Mapped[str | None] = mapped_column(String(64))
     capability_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     turn_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     state: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -114,10 +128,15 @@ class CommittedTurn(Base):
 
 class GameEvent(Base):
     __tablename__ = "game_events"
+    __table_args__ = (
+        CheckConstraint("event_index >= 0"),
+        UniqueConstraint("committed_turn_id", "event_index"),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     committed_turn_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("committed_turns.id"), unique=True, nullable=False
+        PG_UUID(as_uuid=True), ForeignKey("committed_turns.id"), nullable=False
     )
+    event_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)

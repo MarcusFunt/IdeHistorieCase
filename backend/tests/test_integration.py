@@ -2,13 +2,20 @@
 import os
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select
 
-from app.db.connection import session_factory
+from app.db.connection import engine, session_factory
 from app.db.models import ServiceHeartbeat
 from app.workers.main import record_heartbeat
 
 pytestmark = pytest.mark.skipif(os.getenv("DDU_TEST_DB") != "1", reason="Postgres not configured")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def dispose_engine_between_test_event_loops():
+    yield
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

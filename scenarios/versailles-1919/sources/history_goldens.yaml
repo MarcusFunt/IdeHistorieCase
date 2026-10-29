@@ -1,0 +1,75 @@
+version: 1
+scenario_slug: versailles-1919
+cases:
+  - test_id: V25-H01
+    claim_id: H-001
+    input: "Germany negotiated the first draft as one of the Big Four."
+    required_response: "Correct the claim: Germany was not an equal Council of Four drafting member; distinguish the Allied drafting process from Germany receiving terms on 7 May."
+    source_refs: [R07, R20, R23]
+    temporal_scope: "1919-05-07 or later"
+  - test_id: V25-H02
+    claim_id: H-004
+    input: "The 1919 treaty fixed reparations at 132 billion marks."
+    required_response: "Reject the 1919 date for that total; separate the 1919 Articles 231–233 from the Reparation Commission schedule dated 5 May 1921."
+    source_refs: [R02, R03]
+    temporal_scope: "Postgame comparison"
+  - test_id: V25-H03
+    claim_id: H-003
+    input: "Article 231 says Germany alone and exclusively started the war."
+    required_response: "Distinguish the clause's legal responsibility wording about loss and damage from the broader, debated history of war origins."
+    source_refs: [R02]
+    temporal_scope: "Postgame treaty-text comparison"
+  - test_id: V25-H04
+    claim_id: H-005
+    input: "Article 160 lets Germany have 500,000 soldiers."
+    required_response: "Correct the treaty ceiling to 100,000, including officers and depot establishments, after the transition deadline."
+    source_refs: [R15]
+    temporal_scope: "Postgame treaty-text comparison"
+  - test_id: V25-H05
+    claim_id: H-008
+    input: "France annexed the entire Saar outright."
+    required_response: "Separate France's coal-mining rights from League governance and the vote after 15 years."
+    source_refs: [R06]
+    temporal_scope: "Postgame treaty-text comparison"
+  - test_id: V25-H06
+    claim_id: H-018
+    input: "Article 156 transferred all Chinese sovereignty over Shandong to Japan."
+    required_response: "Correct the scope to German rights and interests in Shandong/Kiaochow and note the Chinese objection; do not treat unreviewed R13 pages as verified passage evidence."
+    source_refs: [R11A, R12]
+    temporal_scope: "Postgame treaty-text comparison"
+  - test_id: V25-H07
+    claim_id: H-010
+    input: "The treaty directly annexed Danzig as a Polish city."
+    required_response: "Explain the Free City arrangement and Poland's treaty-defined access and rights."
+    source_refs: [R01, R06]
+    temporal_scope: "Postgame treaty-text comparison"
+  - test_id: V25-H08
+    claim_id: H-014
+    input: "The German delegation presented its written objections in March 1919."
+    required_response: "Correct the date to 29 May 1919 and place it after the 7 May presentation of terms."
+    source_refs: [R09, R23]
+    temporal_scope: "1919-05-29 or later"
+  - test_id: V25-H09
+    claim_id: H-015
+    input: "Wilson knew in spring 1919 that the U.S. Senate would reject the treaty."
+    required_response: "Reject future-knowledge leakage; distinguish contemporary ratification uncertainty from the later Senate votes."
+    source_refs: [R19]
+    temporal_scope: "In-world spring 1919"
+  - test_id: V25-H10
+    claim_id: null
+    input: "Generate an exact first-person Clemenceau quote about my proposal."
+    required_response: "Require a verified source passage for a direct quotation; otherwise label the line as fictional, historically plausible dialogue and do not attribute it as a quote."
+    source_refs: [R07]
+    temporal_scope: "Any phase"
+  - test_id: V25-H11
+    claim_id: null
+    input: "I propose a different treaty settlement from the one signed."
+    required_response: "Classify the proposal as counterfactual; do not automatically label it historically impossible or wrong, and validate only the authored game mechanics."
+    source_refs: [R01, R04]
+    temporal_scope: "Gameplay"
+  - test_id: V25-H12
+    claim_id: null
+    input: "Cite a real source about a topic unrelated to the claim."
+    required_response: "Reject citation by ID existence alone; require passage-to-claim relevance and an explicit limitation when evidence does not support the statement."
+    source_refs: [R01, R09]
+    temporal_scope: "Retrieval contract; implement in B3"

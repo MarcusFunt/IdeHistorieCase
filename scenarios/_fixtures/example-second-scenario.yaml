@@ -1,0 +1,36 @@
+schema_version: 1
+slug: civic-assembly-example
+version: "1"
+metadata:
+  title: "A Civic Assembly"
+  summary: "An independent scenario fixture for manifest validation."
+  default_language: da
+  supported_languages: [da]
+  historical_period: {start_year: 1900, end_year: 1900}
+  subject: "Civic reasoning"
+  tags: [fixture]
+  intended_audience: HTX
+historical_context:
+  introduction: "A fictional civic assembly scenario for structural validation."
+  counterfactual_disclaimer: "Modeled outcomes are not claims about history."
+actors:
+  - {id: assembly, name: Assembly, description: "A fictional civic body."}
+roles:
+  - {id: delegate, actor_id: assembly, title: Delegate, playable: true, introduction: "Present and explain a proposal."}
+default_role_id: delegate
+learning_objectives:
+  - id: reasoned_choice
+    description: "Explain a choice and consider a competing concern."
+    concepts: [reasoning]
+    observable_behaviors: ["State one reason.", "Recognize one competing concern."]
+state_variables:
+  - {id: agenda_support, kind: integer_metric, initial: 50, min_value: 0, max_value: 100, description: "Simulated support, not a historical measurement."}
+phases:
+  - {id: proposal, title: Proposal, is_start: true, is_terminal: false, allowed_next_phase_ids: [reflection]}
+  - {id: reflection, title: Reflection, is_start: false, is_terminal: true, allowed_next_phase_ids: []}
+dilemmas:
+  - {id: civic_tradeoff, phase_id: proposal, prompt: "Which public concern should the assembly address first?", relevant_actor_ids: [assembly], learning_objective_ids: [reasoned_choice]}
+allowed_events:
+  - {type: adjust_metric, target_id: agenda_support, min_delta: -5, max_delta: 5}
+  - {type: advance_phase}
+source_refs: []

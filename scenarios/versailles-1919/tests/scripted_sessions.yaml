@@ -1,0 +1,82 @@
+sessions:
+  - id: peace_compromise
+    path: [security_rhineland, reparations_framework, territories_minorities, league_security, shandong_mandates, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      rhineland_security: demilitarized_with_guarantees
+      army_limit: limited_professional_force
+      reparations_framework: commission_assessment
+      saar_governance: mining_rights_with_vote
+      polish_access: negotiated_access
+      league_guarantees: collective_guarantees
+      mandate_self_determination: mandate_with_review
+      shandong_rights: international_review
+      racial_equality_amendment: defer_to_members
+    german_decision: negotiate_selected_changes
+    final_decision: reconstruction_compromise
+    final_flags: [agreement_reached]
+    support_delta: 3
+  - id: punitive_security
+    path: [security_rhineland, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      rhineland_security: permanent_occupation
+    expected_skipped_issues: [army_limit]
+    german_decision: reject_objections
+    final_decision: security_heavy_package
+    final_flags: [agreement_reached]
+    support_delta: -8
+  - id: economic_reconstruction
+    path: [reparations_framework, territories_minorities, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      reparations_framework: reconstruction_priority
+      saar_governance: mining_rights_with_vote
+    german_decision: revise_terms
+    final_decision: reconstruction_compromise
+    final_flags: [agreement_reached]
+    evidence_delta: 7
+  - id: league_first
+    path: [league_security, shandong_mandates, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      league_guarantees: collective_guarantees
+      mandate_self_determination: local_consultation
+      shandong_rights: international_review
+    german_decision: negotiate_selected_changes
+    final_decision: collective_security_package
+    final_flags: [agreement_reached]
+    support_delta: 1
+  - id: self_determination
+    path: [territories_minorities, league_security, shandong_mandates, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      saar_governance: local_governance
+      polish_access: negotiated_access
+      league_guarantees: limited_commitment
+      mandate_self_determination: local_consultation
+      shandong_rights: return_rights_to_china
+    german_decision: revise_terms
+    final_decision: self_determination_package
+    final_flags: [agreement_reached, counterfactual_terms]
+    support_delta: 1
+  - id: refusal_deadlock
+    path: [draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions: {}
+    german_decision: refuse_signature
+    final_decision: deadlock
+    final_flags: [deadlock]
+    support_delta: -10
+  - id: counterfactual_no_future_leak
+    path: [shandong_mandates, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      shandong_rights: transfer_german_rights_to_japan
+    german_decision: revise_terms
+    final_decision: self_determination_package
+    final_flags: [agreement_reached, counterfactual_terms]
+    evidence_delta: 3
+  - id: recover_after_restart
+    path: [security_rhineland, reparations_framework, draft_delivery, german_objections, final_settlement, reflection]
+    issue_decisions:
+      rhineland_security: occupation_limited_by_review
+      reparations_framework: damage_assessment
+    german_decision: negotiate_selected_changes
+    final_decision: collective_security_package
+    final_flags: [agreement_reached]
+    support_delta: 2
+    replay_first_turn: true

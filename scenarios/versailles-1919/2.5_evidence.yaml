@@ -1,0 +1,32 @@
+policy_version: 1
+scenario_slug: versailles-1919
+scenario_version: "2.5"
+citation_ready: false
+default_when_no_approved_passage: RAG_NO_EVIDENCE
+date_fields_are_distinct: [record_date, archive_publication_date, in_world_available_from]
+source_access:
+  - {source_id: R01, record_date: "1919-06-28", in_world_available_from: "1919-06-28", scope: final_treaty_or_postgame, actor_ids: [britain, france, united_states, italy, germany], citation_ready: false}
+  - {source_id: R02, record_date: "1919-06-28", in_world_available_from: "1919-06-28", scope: final_treaty_or_postgame, actor_ids: [britain, france, united_states, italy, germany], citation_ready: false}
+  - {source_id: R03, record_date: "1921-05-05", in_world_available_from: postgame, scope: postgame_only, actor_ids: [], citation_ready: false}
+  - {source_id: R04, record_date: "1918-01-08", in_world_available_from: "1918-01-08", scope: period_statement_paraphrase_only, actor_ids: [britain, france, united_states, italy, japan, china], citation_ready: false}
+  - {source_id: R05, record_date: "1919-06-28", in_world_available_from: "1919-06-28", scope: final_treaty_or_postgame, actor_ids: [britain, france, united_states, italy], citation_ready: false}
+  - {source_id: R06, record_date: "1919-06-28", in_world_available_from: "1919-06-28", scope: final_treaty_or_postgame, actor_ids: [britain, france, united_states, italy, germany], citation_ready: false}
+  - {source_id: R07, record_date: "1919-03-20/1919-05-24", in_world_available_from: "1919-05-24", scope: confidential_council_record, actor_ids: [britain, france, united_states, italy], citation_ready: false}
+  - {source_id: R08, record_date: "1919-05-24/1919-06-28", in_world_available_from: "1919-06-28", scope: confidential_council_record_selected_by_document, actor_ids: [britain, france, united_states, italy], citation_ready: false}
+  - {source_id: R09, record_date: "1919-05-29", in_world_available_from: "1919-05-29", scope: written_exchange_after_draft_delivery, actor_ids: [britain, france, united_states, germany], citation_ready: false}
+  - {source_id: R10, record_date: "1919-04-28", in_world_available_from: "1919-04-28", scope: plenary_record_after_meeting, actor_ids: [britain, france, united_states, italy, japan], citation_ready: false}
+  - {source_id: R11, record_date: "1919-04-25", in_world_available_from: "1919-04-25", scope: confidential_council_record, actor_ids: [britain, france, united_states], citation_ready: false}
+  - {source_id: R11A, record_date: "1919-04-25", in_world_available_from: "1919-04-25", scope: delegation_submission, actor_ids: [china], citation_ready: false}
+  - {source_id: R12, record_date: "1919-06-28", in_world_available_from: "1919-06-28", scope: final_treaty_or_postgame, actor_ids: [britain, france, united_states, italy, japan, china, germany], citation_ready: false}
+  - {source_id: R13, record_date: "1919", in_world_available_from: blocked, scope: link_only_selected_pages_unreviewed, actor_ids: [], citation_ready: false}
+  - {source_id: R14, record_date: "1919-05-17", in_world_available_from: blocked, scope: link_only_page_access_and_rights_pending, actor_ids: [], citation_ready: false}
+  - {source_id: R15, record_date: "1919-06-28", in_world_available_from: "1919-06-28", scope: final_treaty_or_postgame, actor_ids: [britain, france, united_states, italy, germany], citation_ready: false}
+  - {source_id: R16, record_date: "1919-06-28", in_world_available_from: blocked, scope: link_only_page_and_rights_review_pending, actor_ids: [], citation_ready: false}
+  - {source_id: R17, record_date: "1919-03-25", in_world_available_from: blocked, scope: lead_full_text_unverified, actor_ids: [], citation_ready: false}
+  - {source_id: R18, record_date: "1919/1920", in_world_available_from: postgame, scope: later_interpretation_only, actor_ids: [], citation_ready: false}
+  - {source_id: R19, record_date: "1919-11/1920-03", in_world_available_from: postgame, scope: postgame_only, actor_ids: [], citation_ready: false}
+  - {source_id: R20, record_date: "2019", in_world_available_from: postgame, scope: secondary_context_only, actor_ids: [], citation_ready: false}
+  - {source_id: R21, record_date: "1919-06-28", in_world_available_from: postgame, scope: archival_authentication_only, actor_ids: [], citation_ready: false}
+  - {source_id: R22, record_date: "1919-05-07", in_world_available_from: blocked, scope: link_only_transcript_and_rights_pending, actor_ids: [], citation_ready: false}
+  - {source_id: R23, record_date: "1919-05-07", in_world_available_from: postgame, scope: later_chronology_only, actor_ids: [], citation_ready: false}
+  - {source_id: R24, record_date: retired_overview, in_world_available_from: postgame, scope: secondary_context_only, actor_ids: [], citation_ready: false}

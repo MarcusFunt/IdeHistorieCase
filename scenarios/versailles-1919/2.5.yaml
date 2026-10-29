@@ -1,0 +1,87 @@
+schema_version: 1
+slug: versailles-1919
+version: "2.5"
+metadata:
+  title: "Parisfredskonferencen: Versailles, 1919"
+  summary: "Forhandl om sikkerhed, retfærdighed, selvbestemmelse og politisk repræsentation."
+  default_language: da
+  supported_languages: [da]
+  historical_period: {start_year: 1919, end_year: 1919}
+  subject: Idéhistorie
+  tags: [versailles, diplomati, sikkerhed, selvbestemmelse]
+  intended_audience: HTX
+historical_context:
+  introduction: >-
+    Du spiller en fiktiv britisk rådgiver ved fredsforhandlingerne i Paris i 1919.
+    Begrund forslag til en holdbar fred, mens deltagerne er uenige om sikkerhed,
+    økonomi, territorier og repræsentation. Tyskland deltog ikke som et ligeværdigt
+    medlem af Rådet af Fire under udarbejdelsen af de allieredes vilkår. Kinas og
+    andre berørte befolkningers perspektiver må ikke forveksles med stormagternes
+    interne drøftelser. Dine forslag kan skabe et alternativt forløb.
+  counterfactual_disclaimer: >-
+    Spillets forslag og reaktioner er kontrafaktiske modeller, ikke historiske
+    hændelser eller målte forudsigelser. Opdigtet dialog er ikke et historisk
+    citat. Historiske påstande kræver relevante, godkendte kildepassager.
+actors:
+  - {id: britain, name: "Den britiske delegation", description: "Historisk delegation med interne uenigheder om sikkerhed og økonomi."}
+  - {id: france, name: "Den franske delegation", description: "Historisk delegation med sikkerheds- og genopbygningshensyn; ingen ensartet holdning antages."}
+  - {id: united_states, name: "Den amerikanske delegation", description: "Historisk delegation med principper og politiske begrænsninger."}
+  - {id: italy, name: "Den italienske delegation", description: "Deltager i Rådet af Fire med egne krav og uenigheder."}
+  - {id: germany, name: "Den tyske delegation", description: "Modtager af vilkårene fra 7. maj og formel respondent derefter; ikke ligeværdig tidlig medforfatter."}
+  - {id: japan, name: "Den japanske delegation", description: "Historisk deltager med interesser i Shandong og drøftelser om lighed."}
+  - {id: china, name: "Den kinesiske delegation", description: "Berørt delegation med forslag og indsigelser; ikke medlem af Rådet af Fire."}
+  - {id: poland, name: "Den polske delegation", description: "Berørt af grænser, adgang til havet og mindretalsbeskyttelse."}
+  - {id: belgium, name: "Den belgiske delegation", description: "Berørt delegation med genopbygnings- og sikkerhedshensyn."}
+  - {id: colonized_peoples, name: "Berørte koloniserede samfund (sammensat perspektiv)", description: "Analytisk kategori for forskellige samfund; ikke én virkelig delegation eller fælles holdning."}
+roles:
+  - {id: british_adviser, actor_id: britain, title: "Fiktiv britisk forhandlingsrådgiver", playable: true, introduction: "Du er opdigtet, ikke en historisk leder. Begrund et forslag og overvej, hvem der mangler indflydelse."}
+default_role_id: british_adviser
+learning_objectives:
+  - {id: security_vs_justice, description: "Skeln mellem straf, genopretning og sikkerhed.", concepts: [sikkerhed, retfærdighed], observable_behaviors: ["Begrund en prioritering.", "Forklar en omkostning eller modpartsbekymring."]}
+  - {id: self_determination_limits, description: "Undersøg spændinger mellem selvbestemmelse, grænser, mindretal og imperium.", concepts: [selvbestemmelse, imperium], observable_behaviors: ["Knyt et princip til en sag.", "Beskriv hvem der mangler indflydelse."]}
+  - {id: sovereignty_vs_collective_security, description: "Vurder kollektive garantier over for suverænitet og håndhævelse.", concepts: [Folkeforbundet, suverænitet], observable_behaviors: ["Sammenlign legitime hensyn.", "Angiv usikkerhed ved håndhævelse."]}
+  - {id: economic_interdependence, description: "Forbind erstatningskrav, genopbygning og økonomiske hensyn uden anakronistiske beløb.", concepts: [erstatning, genopbygning], observable_behaviors: ["Begrund et valg.", "Skeln mellem vilkår fra 1919 og senere opgørelser."]}
+  - {id: historical_perspective, description: "Sammenlign foranderlige og interesserede aktørperspektiver.", concepts: [perspektiv, interesse], observable_behaviors: ["Angiv hvem et udsagn repræsenterer.", "Nævn hvad perspektivet udelader."]}
+  - {id: fact_interpretation_counterfactual, description: "Skeln mellem underskrevne vilkår, samtidige udsagn og spiludfald.", concepts: [historisk faktum, fortolkning], observable_behaviors: ["Mærk et alternativ kontrafaktisk.", "Sammenlign med en historisk bestemmelse."]}
+  - {id: procedural_legitimacy, description: "Vurder repræsentation, eksklusion og forhandlingsmæssig legitimitet.", concepts: [repræsentation, procedure], observable_behaviors: ["Identificer en berørt part uden tilsvarende indflydelse.", "Forklar hvordan proceduren former udfaldet."]}
+  - {id: argument_evidence, description: "Begrund en beslutning med relevant, tidsmæssigt tilgængeligt belæg.", concepts: [argument, kilde], observable_behaviors: ["Knyt belæg til påstanden.", "Sig til når godkendte kilder ikke rækker."]}
+state_variables:
+  - {id: coalition_support, kind: integer_metric, initial: 50, min_value: 0, max_value: 100, description: "Simuleret støtte; ikke et historisk måletal."}
+  - {id: evidence_coverage, kind: integer_metric, initial: 0, min_value: 0, max_value: 100, description: "Simuleret dækningsindikator; ikke historisk statistik."}
+  - {id: counterfactual_terms, kind: boolean_flag, initial: false, description: "Om et forslag afviger fra underskrevne 1919-vilkår."}
+  - {id: agreement_reached, kind: boolean_flag, initial: false, description: "Om spillet ender med en forhandlet aftale."}
+  - {id: deadlock, kind: boolean_flag, initial: false, description: "Om forhandlingerne afsluttes uden aftale."}
+  - {id: reflection_complete, kind: boolean_flag, initial: false, description: "Om afsluttende sammenligning er gennemført."}
+phases:
+  - {id: opening_context, title: "Åbning og ramme", is_start: true, is_terminal: false, allowed_next_phase_ids: [security_rhineland, reparations_framework, territories_minorities, league_security, shandong_mandates, draft_delivery]}
+  - {id: security_rhineland, title: "Sikkerhed og Rhinlandet", is_start: false, is_terminal: false, allowed_next_phase_ids: [reparations_framework, territories_minorities, league_security, shandong_mandates, draft_delivery]}
+  - {id: reparations_framework, title: "Erstatninger og genopbygning", is_start: false, is_terminal: false, allowed_next_phase_ids: [territories_minorities, league_security, shandong_mandates, draft_delivery]}
+  - {id: territories_minorities, title: "Territorier og mindretal", is_start: false, is_terminal: false, allowed_next_phase_ids: [league_security, shandong_mandates, draft_delivery]}
+  - {id: league_security, title: "Folkeforbund og garantier", is_start: false, is_terminal: false, allowed_next_phase_ids: [shandong_mandates, draft_delivery]}
+  - {id: shandong_mandates, title: "Shandong, mandater og lighed", is_start: false, is_terminal: false, allowed_next_phase_ids: [draft_delivery]}
+  - {id: draft_delivery, title: "Allierede vilkår præsenteres — 7. maj", is_start: false, is_terminal: false, allowed_next_phase_ids: [german_objections]}
+  - {id: german_objections, title: "Tyske indsigelser — fra 29. maj", is_start: false, is_terminal: false, allowed_next_phase_ids: [final_settlement]}
+  - {id: final_settlement, title: "Aftale eller fastlåst forhandling", is_start: false, is_terminal: false, allowed_next_phase_ids: [reflection]}
+  - {id: reflection, title: "Historisk sammenligning og refleksion", is_start: false, is_terminal: true, allowed_next_phase_ids: []}
+dilemmas:
+  - {id: d01_principles, phase_id: opening_context, prompt: "Hvilke principper bør begrænse vilkårene, og hvem får indflydelse?", relevant_actor_ids: [britain, france, united_states, germany, china], learning_objective_ids: [historical_perspective, procedural_legitimacy]}
+  - {id: d02_rhineland, phase_id: security_rhineland, prompt: "Hvordan mødes franske sikkerhedsbehov uden at forveksle demilitarisering med annektering?", relevant_actor_ids: [britain, france, germany, belgium], learning_objective_ids: [security_vs_justice, historical_perspective]}
+  - {id: d03_army, phase_id: security_rhineland, prompt: "Hvilke militære begrænsninger kan forsvares, og hvilke risici følger med?", relevant_actor_ids: [britain, france, germany], learning_objective_ids: [security_vs_justice, fact_interpretation_counterfactual]}
+  - {id: d04_reparations, phase_id: reparations_framework, prompt: "Hvordan afvejes ansvar, erstatningskrav og genopbygning, når beløbet ikke er fastlagt?", relevant_actor_ids: [britain, france, germany, belgium], learning_objective_ids: [economic_interdependence, argument_evidence]}
+  - {id: d05_saar, phase_id: territories_minorities, prompt: "Hvordan vægtes kulrettigheder, lokal forvaltning og befolkningens fremtid i Saar?", relevant_actor_ids: [britain, france, germany], learning_objective_ids: [self_determination_limits, fact_interpretation_counterfactual]}
+  - {id: d06_poland_danzig, phase_id: territories_minorities, prompt: "Hvordan forenes Polens adgang til havet med Danzigs status og lokale mindretal?", relevant_actor_ids: [poland, germany, britain], learning_objective_ids: [self_determination_limits, procedural_legitimacy]}
+  - {id: d07_league, phase_id: league_security, prompt: "Hvor stærke bør kollektive garantier være, og hvad kræver de af suverænitet?", relevant_actor_ids: [britain, france, united_states], learning_objective_ids: [sovereignty_vs_collective_security, argument_evidence]}
+  - {id: d08_mandates, phase_id: league_security, prompt: "Hvordan vurderes mandater op mod selvbestemmelse, når berørte samfund behandles forskelligt?", relevant_actor_ids: [united_states, japan, colonized_peoples], learning_objective_ids: [self_determination_limits, procedural_legitimacy]}
+  - {id: d09_shandong, phase_id: shandong_mandates, prompt: "Hvordan behandles Japans krav og Kinas indsigelser, når beslutningsmagten er ulige fordelt?", relevant_actor_ids: [japan, china, britain], learning_objective_ids: [historical_perspective, procedural_legitimacy]}
+  - {id: d10_racial_equality, phase_id: shandong_mandates, prompt: "Hvordan mødes et krav om lighed med konferencens politiske begrænsninger?", relevant_actor_ids: [japan, united_states, britain], learning_objective_ids: [self_determination_limits, historical_perspective]}
+  - {id: d11_german_reply, phase_id: german_objections, prompt: "Hvordan håndteres tyske skriftlige indsigelser efter de allieredes vilkår?", relevant_actor_ids: [germany, britain, france, united_states], learning_objective_ids: [procedural_legitimacy, fact_interpretation_counterfactual]}
+  - {id: d12_final_balance, phase_id: final_settlement, prompt: "Hvordan forsvares en aftale eller et sammenbrud uden at udpege ét valg som eneste rigtige?", relevant_actor_ids: [britain, france, united_states, germany, china, japan], learning_objective_ids: [security_vs_justice, argument_evidence, fact_interpretation_counterfactual]}
+allowed_events:
+  - {type: adjust_metric, target_id: coalition_support, min_delta: -10, max_delta: 10}
+  - {type: adjust_metric, target_id: evidence_coverage, min_delta: -10, max_delta: 10}
+  - {type: set_flag, target_id: counterfactual_terms}
+  - {type: set_flag, target_id: agreement_reached}
+  - {type: set_flag, target_id: deadlock}
+  - {type: set_flag, target_id: reflection_complete}
+  - {type: advance_phase}
+source_refs: [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R11A, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R22, R23, R24]

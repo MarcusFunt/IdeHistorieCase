@@ -1,0 +1,148 @@
+version: 1
+scenario_slug: versailles-1919
+claims:
+  - claim_id: H-001
+    statement: "Germany did not participate as an equal member of the Council of Four drafting negotiations; it received the Allied terms later."
+    claim_type: historical_procedure
+    confidence: high
+    hard_oracle: true
+    source_refs: [R07, R08, R20, R23]
+    earliest_use: "1919-05-07"
+    notes: "The claim includes Germany receiving the Allied terms; do not present that event before 7 May."
+  - claim_id: H-002
+    statement: "The Allied draft was presented to the German delegation on 7 May 1919."
+    claim_type: chronology
+    confidence: high
+    hard_oracle: true
+    source_refs: [R01, R20, R21, R23]
+    earliest_use: "1919-05-07"
+    notes: "The draft presentation is a distinct event from the treaty signing."
+  - claim_id: H-003
+    statement: "Article 231 states that the Allied and Associated Governments affirm, and Germany accepts, responsibility for Allied loss and damage in the treaty's legal wording."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R02]
+    earliest_use: "1919-06-28"
+    notes: "Do not turn the clause into an uncontested historical finding that Germany alone caused the war."
+  - claim_id: H-004
+    statement: "The 132 billion gold-mark total appears in the Reparation Commission schedule dated 5 May 1921, not as a fixed amount in the June 1919 treaty."
+    claim_type: chronology_and_legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R02, R03]
+    earliest_use: postgame
+    notes: "Do not expose this later schedule as known to a 1919 player."
+  - claim_id: H-005
+    statement: "Article 160 caps the German army at 100,000 after the transition deadline, including officers and depot establishments."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R15]
+    earliest_use: "1919-06-28"
+    notes: "The article sets an implementation deadline no later than 31 March 1920."
+  - claim_id: H-006
+    statement: "Article 198 prohibits German military and naval air forces and includes a limited temporary exception for mine-search seaplanes."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R15]
+    earliest_use: "1919-06-28"
+    notes: "Do not simplify this as an exceptionless ban on every aircraft."
+  - claim_id: H-007
+    statement: "Articles 42–44 restrict fortifications and military activity in the Rhineland; they do not create an independent French state there."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R06]
+    earliest_use: "1919-06-28"
+    notes: "Distinguish demilitarization and occupation arrangements from annexation."
+  - claim_id: H-008
+    statement: "Article 45 grants France Saar coal-mining rights; Article 49 places the territory under League governance and provides for a vote after 15 years."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R06]
+    earliest_use: "1919-06-28"
+    notes: "Mining rights are not full territorial sovereignty."
+  - claim_id: H-009
+    statement: "Article 51 returns Alsace-Lorraine to French sovereignty."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R06]
+    earliest_use: "1919-06-28"
+    notes: "Anchor any generated explanation to Article 51 rather than an unsourced paraphrase."
+  - claim_id: H-010
+    statement: "The treaty establishes a Free City of Danzig with defined Polish rights; it does not simply annex Danzig as an ordinary Polish city."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R01, R06]
+    earliest_use: "1919-06-28"
+    notes: "Use Parts III and XI for the exact article-level scope."
+  - claim_id: H-011
+    statement: "Article 119 addresses German overseas possessions, while Covenant Article 22 establishes the mandate system rather than immediate universal independence."
+    claim_type: legal_text
+    confidence: high
+    hard_oracle: true
+    source_refs: [R05, R12]
+    earliest_use: "1919-06-28"
+    notes: "The paternalistic language is part of the historical text; normative evaluation is interpretive."
+  - claim_id: H-012
+    statement: "The Chinese delegation submitted a statement concerning the Shandong/Kiaochow settlement for the 25 April 1919 Council of Four meeting; the appendix is distinct from the Council minutes."
+    claim_type: contemporary_response
+    confidence: high
+    hard_oracle: true
+    source_refs: [R11A]
+    earliest_use: "1919-04-25"
+    notes: "Keep the submitted Chinese statement distinct from Council minutes and from the later signed article."
+  - claim_id: H-013
+    statement: "The Japanese delegation proposed a racial-equality amendment at the 28 April 1919 plenary; Makino described the amendment and said the delegation regretted that the Commission had not approved it."
+    claim_type: historical_procedure
+    confidence: high
+    hard_oracle: true
+    source_refs: [R10]
+    earliest_use: "1919-04-28"
+    notes: "FRUS vol. III, pp. 289-291. Attribute the statement to Makino and the Japanese delegation; do not invent motives or claim the amendment was adopted."
+  - claim_id: H-014
+    statement: "The German delegation submitted written observations on the peace terms on 29 May 1919, after the Allied terms were presented on 7 May."
+    claim_type: chronology
+    confidence: high
+    hard_oracle: true
+    source_refs: [R08, R09, R23]
+    earliest_use: "1919-05-29"
+    notes: "Do not place the written observations in March or April."
+  - claim_id: H-015
+    statement: "The U.S. Senate rejected the treaty after the Paris negotiations; the future vote was not a known fact to a player in spring 1919."
+    claim_type: retrospective_chronology
+    confidence: high
+    hard_oracle: true
+    source_refs: [R19]
+    earliest_use: postgame
+    notes: "A character may discuss ratification uncertainty, not claim knowledge of the later result."
+  - claim_id: H-016
+    statement: "British and French participants expressed competing concerns about French security and a stable European settlement, while positions varied and changed."
+    claim_type: interpretive_position
+    confidence: contextual
+    hard_oracle: false
+    source_refs: [R07, R17, R20]
+    earliest_use: "1919-05-24"
+    notes: "Use only from the end of this aggregate record set; do not make this a unanimous national position or attach a fabricated numerical effect."
+
+  - claim_id: H-017
+    statement: "The Treaty of Versailles was signed on 28 June 1919."
+    claim_type: chronology
+    confidence: high
+    hard_oracle: true
+    source_refs: [R01]
+    earliest_use: "1919-06-28"
+    notes: "The signing date is not available before the treaty is signed."
+  - claim_id: H-018
+    statement: "Article 156 transferred German rights and interests in Shandong/Kiaochow to Japan; it did not transfer all Chinese sovereignty, and Chinese representatives had objected earlier."
+    claim_type: legal_text_and_contemporary_response
+    confidence: high
+    hard_oracle: true
+    source_refs: [R11A, R12]
+    earliest_use: "1919-06-28"
+    notes: "This combined comparison is available only after the treaty text appears; R13 selected pages remain unreviewed."

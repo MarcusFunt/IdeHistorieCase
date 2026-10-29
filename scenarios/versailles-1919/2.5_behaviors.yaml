@@ -1,0 +1,27 @@
+policy_version: 1
+scenario_slug: versailles-1919
+scenario_version: "2.5"
+status: authored_rules_proposal_for_B2
+authority: deterministic_application_rules_only
+reaction_policy: index_pairing_is_illustrative_not_historical
+rules:
+  - {issue_id: rhineland_security, phase_id: security_rhineland, decision_codes: [demilitarized_with_guarantees, occupation_limited_by_review, permanent_occupation, no_special_restrictions], objection_codes: [french_security_concern, german_sovereignty_concern, british_guarantee_concern], evidence_refs: [R06, R07], response: qualitative_objections_only}
+  - {issue_id: army_limit, phase_id: security_rhineland, decision_codes: [limited_professional_force, broader_force, disarmament_without_force], objection_codes: [security_guarantee_tradeoff, sovereignty_tradeoff], evidence_refs: [R15], response: compare_signed_ceiling_only_in_dated_postgame_view}
+  - {issue_id: reparations_framework, phase_id: reparations_framework, decision_codes: [damage_assessment, fixed_early_total, commission_assessment, reconstruction_priority], objection_codes: [compensation_scope_dispute, recoverability_uncertainty], evidence_refs: [R02, R03], response: do_not_expose_1921_schedule_as_known_in_1919}
+  - {issue_id: saar_governance, phase_id: territories_minorities, decision_codes: [mining_rights_with_vote, direct_annexation, local_governance, status_quo], objection_codes: [resource_claim, sovereignty_concern, self_determination_concern], evidence_refs: [R06], response: separate_mining_governance_and_vote}
+  - {issue_id: polish_access, phase_id: territories_minorities, decision_codes: [polish_sea_access_with_free_city, direct_danzig_annexation, no_corridor, negotiated_access], objection_codes: [polish_access_concern, local_status_concern, minority_protection_concern], evidence_refs: [R06, R16], response: keep_danzig_and_minority_questions_distinct}
+  - {issue_id: league_guarantees, phase_id: league_security, decision_codes: [collective_guarantees, national_guarantees, limited_commitment, no_guarantee], objection_codes: [sovereignty_concern, enforcement_uncertainty, ratification_uncertainty], evidence_refs: [R04, R05, R19], response: later_ratification_outcome_is_not_known_during_1919_play}
+  - {issue_id: mandate_self_determination, phase_id: league_security, decision_codes: [mandate_with_review, immediate_independence, imperial_transfer, local_consultation], objection_codes: [self_determination_gap, imperial_power_imbalance], evidence_refs: [R05, R12], response: do_not_assign_one_preference_to_all_colonized_societies}
+  - {issue_id: shandong_rights, phase_id: shandong_mandates, decision_codes: [transfer_german_rights_to_japan, return_rights_to_china, international_review, local_consultation], objection_codes: [chinese_rights_objection, japanese_claim, procedure_legitimacy_concern], evidence_refs: [R11, R11A, R12, R13], response: article_156_scope_is_german_rights_not_all_chinese_sovereignty}
+  - {issue_id: racial_equality_amendment, phase_id: shandong_mandates, decision_codes: [adopt_equal_treatment_text, defer_to_members, reject_amendment, reopen_wording], objection_codes: [equality_principle, political_resistance], evidence_refs: [R10], response: describe_recorded_debate_without_imputing_unanimous_motive}
+  - {issue_id: german_objections, phase_id: german_objections, decision_codes: [revise_terms, reject_objections, negotiate_selected_changes, refuse_signature], objection_codes: [german_terms_objection, allied_enforcement_position], evidence_refs: [R08, R09], response: enable_written_letter_from_1919_05_29_only}
+  - {issue_id: final_package, phase_id: final_settlement, decision_codes: [security_heavy_package, reconstruction_compromise, collective_security_package, self_determination_package, deadlock], objection_codes: [internal_consistency_question, stakeholder_tradeoff, representation_gap], evidence_refs: [R01, R04, R06, R12, R15], response: label_nonhistorical_package_counterfactual_without_war_predictions}
+
+
+terminal_policy:
+  phase_id: final_settlement
+  target_phase_id: reflection
+  issue_id: final_package
+  deadlock_decision_code: deadlock
+  agreement_flag_id: agreement_reached
+  deadlock_flag_id: deadlock

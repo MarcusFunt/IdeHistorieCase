@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.connection import session_factory
 from app.db.models import CommittedTurn, GameSession, ScenarioVersion, TurnRequest
+from app.scenarios.repository import get_active_scenario
 
 router = APIRouter(prefix="/api/v1")
 bearer = HTTPBearer(auto_error=False)
@@ -25,6 +26,7 @@ CAPABILITY_LIFETIME = timedelta(hours=24)
 class CreateSession(BaseModel):
     model_config = ConfigDict(extra="forbid")
     scenario: str = Field(min_length=1, max_length=80)
+    role_id: str | None = Field(default=None, min_length=2, max_length=64)
 
 
 class SubmitTurn(BaseModel):
@@ -79,9 +81,54 @@ def public_request(turn: TurnRequest) -> dict:
 async def list_scenarios():
     async with session_factory() as db:
         rows = (await db.execute(select(ScenarioVersion).order_by(
-            ScenarioVersion.slug, ScenarioVersion.version
+            ScenarioVersion.slug,
+            ScenarioVersion.is_active.desc(),
+            ScenarioVersion.created_at,
+            ScenarioVersion.version,
         ))).scalars().all()
-        return [{"slug": row.slug, "version": row.version} for row in rows]
+        result = []
+        for row in rows:
+            definition = row.definition
+            metadata = definition.get("metadata", {}) if definition else {}
+            result.append({
+                "slug": row.slug,
+                "version": row.version,
+                "title": metadata.get("title"),
+                "summary": metadata.get("summary"),
+                "default_language": metadata.get("default_language"),
+                "supported_roles": [
+                    role["id"] for role in definition.get("roles", []) if role.get("playable")
+                ] if definition else [],
+                "is_active": row.is_active,
+                "is_authored": definition is not None,
+            })
+        return result
+
+
+@router.get("/scenarios/{slug}")
+async def get_scenario(slug: str):
+    async with session_factory() as db:
+        scenario = await get_active_scenario(db, slug)
+        if scenario is None:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        if scenario.definition is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Active scenario version is an unauthored legacy stub and is not playable",
+            )
+        definition = scenario.definition
+        return {
+            "slug": scenario.slug,
+            "version": scenario.version,
+            "metadata": definition["metadata"],
+            "historical_context": definition["historical_context"],
+            "actors": definition["actors"],
+            "roles": [role for role in definition["roles"] if role["playable"]],
+            "default_role_id": definition["default_role_id"],
+            "learning_objectives": definition["learning_objectives"],
+            "phases": definition["phases"],
+            "dilemmas": definition["dilemmas"],
+        }
 
 
 @router.post("/sessions", status_code=201)
@@ -89,14 +136,22 @@ async def create_session(payload: CreateSession):
     token = secrets.token_urlsafe(32)
     async with session_factory() as db:
         async with db.begin():
-            scenario = (await db.execute(
-                select(ScenarioVersion).where(ScenarioVersion.slug == payload.scenario)
-                .order_by(ScenarioVersion.version.desc()).limit(1)
-            )).scalar_one_or_none()
+            scenario = await get_active_scenario(db, payload.scenario, lock=True)
             if scenario is None:
                 raise HTTPException(status_code=404, detail="Scenario not found")
+            player_role_id = None
+            if scenario.definition is not None:
+                playable_roles = {
+                    role["id"] for role in scenario.definition["roles"] if role["playable"]
+                }
+                player_role_id = payload.role_id or scenario.definition["default_role_id"]
+                if player_role_id not in playable_roles:
+                    raise HTTPException(status_code=422, detail="role_id is not a playable role")
+            elif payload.role_id is not None:
+                raise HTTPException(status_code=422, detail="Legacy scenario does not support roles")
             session = GameSession(
                 id=uuid4(), scenario_version_id=scenario.id,
+                player_role_id=player_role_id,
                 capability_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
                 capability_expires_at=datetime.now(timezone.utc) + CAPABILITY_LIFETIME,
                 turn_number=0, state=dict(scenario.initial_state),
@@ -105,6 +160,7 @@ async def create_session(payload: CreateSession):
             return {
                 "id": str(session.id), "token": token, "turn_number": 0,
                 "scenario": scenario.slug, "scenario_version": scenario.version,
+                "role_id": player_role_id,
                 "token_expires_at": session.capability_expires_at.isoformat(),
             }
 
@@ -117,11 +173,14 @@ async def resume_session(session_id: UUID, token: Annotated[str, Depends(require
         pending = (await db.execute(select(TurnRequest).where(
             TurnRequest.session_id == session.id, TurnRequest.status.in_(ACTIVE_STATUSES)
         ))).scalar_one_or_none()
+        scenario = await db.get(ScenarioVersion, session.scenario_version_id)
         return {
             "id": str(session.id), "turn_number": session.turn_number, "state": session.state,
             "pending_request": public_request(pending) if pending else None,
+            "scenario": scenario.slug,
+            "scenario_version": scenario.version,
+            "player_role_id": session.player_role_id,
         }
-
 
 @router.post("/sessions/{session_id}/turns", status_code=202)
 async def submit_turn(

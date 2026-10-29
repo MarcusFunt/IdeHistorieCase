@@ -38,6 +38,8 @@ jobs:
           python-version: "3.13"
       - name: Install backend with test dependencies
         run: python -m pip install -e "./backend[dev]"
+      - name: Validate authored scenario manifests
+        run: python -m app.scenarios.cli validate-all scenarios
       - name: Ruff
         run: |
           ruff check backend
@@ -55,6 +57,11 @@ jobs:
         run: |
           pytest -q tests/test_integration.py
           pytest -q tests/test_m2_integration.py
+          pytest -q tests/test_migration_preservation.py
+          pytest -q tests/test_scenario_runtime.py
+          pytest -q tests/test_scenario_repository.py
+          pytest -q tests/test_scenario_cli_db.py
+          pytest -q tests/test_scenario_api.py
       - name: Validate backend Compose project
         run: |
           cp deployment/backend/.env.example deployment/backend/.env
