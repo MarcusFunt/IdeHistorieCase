@@ -51,3 +51,18 @@ The complete [Backend CI run 40892572079](https://github.com/MarcusFunt/IdeHisto
 - Ruff passed for backend code, tests, and `scripts/m2_fake_smoke.py`.
 
 Warnings observed on that run: checkout/setup-python used Node.js 20 and emitted the GitHub deprecation notice; pytest-asyncio emitted the unset fixture-loop-scope warning; Node also emitted a `punycode` deprecation, which needs separate investigation after the action upgrade. The failure-only log step was skipped on this passing run; its behavior before Compose setup is addressed in the follow-up CI changes.
+
+PR #7 was merged to `main` as commit `312346e8510b3f85528157979ae57cd57957a70c`. The [push-triggered Backend CI run 40893804099](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40893804099) on that main commit completed successfully.
+
+## CI reliability follow-up — 2026-10-29
+
+PR [#8](https://github.com/MarcusFunt/IdeHistorieCase/pull/8), stacked on PR #7, introduced current Node 24 GitHub Actions releases, a pinned `uv` install, an explicit pytest fixture loop scope, clearer failure-only Compose logs, and manual workflow dispatch. Its full [Backend CI run 40893533431](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40893533431) passed for PR head `39348393030ba497ce2b9e656e7bab5c9b7d67d0` (the runner tested merge ref `844fdcd3fbbe436d009fa2473d2fe8cc902cf108`) with uv 0.13.5. A follow-up review found that bare `uv run` could refresh a stale lock. PR [#9](https://github.com/MarcusFunt/IdeHistorieCase/pull/9) adds `--locked` to every invocation. The final [Backend CI run 40894623285](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40894623285) passed on PR #9 head `691d990fe5258178504d8f8b28b9bf79b5aba14f`, using `uv sync --frozen` and `uv run --locked` for the committed lockfile.
+
+- Scenario validation: 2 manifests; bundle verification: 1 pin.
+- Ruff passed. Unit/contract tests: 95 passed, 37 database-gated skipped, 1 deselected.
+- Alembic upgraded the fresh PostgreSQL service through migration 0004. Database suites passed: integration 1, M2 integration 15, migration preservation 1, scenario runtime 10, scenario repository 7, scenario CLI 2, and scenario API 2 (38 total).
+- Compose configuration, no-inference Docker build/boot, `/healthz`, `/readyz`, status (`worker=running`, `inference=degraded`), and fake-turn smoke all passed.
+- The Node.js 20 action deprecation, `punycode` deprecation, and pytest-asyncio fixture-scope warnings seen in the first run were absent. Remaining unrelated output includes the Docker image build's root-pip and UID-range warnings and PostgreSQL's disposable-service trust-authentication notice. The readiness polling loop also saw one startup connection reset before the service became ready; all health and smoke checks then passed.
+- The failure-only log step was skipped because the run passed. Its guard prints `Compose not started; no container logs available` unless a Compose boot was attempted and the env file exists; boot-attempt failures still collect `compose ps` and logs.
+
+The workflow keeps the existing single `tests` job/check name because the repository's required-check configuration was not established; splitting it could silently change merge requirements. A `codex/**` push trigger was deferred because pull-request events already run CI for review branches. Scenario content and its immutable version were unchanged by either remediation PR.
