@@ -18,7 +18,9 @@ B1 supports strict Pydantic scenario definitions, graph/reference validation, de
 
 The runtime now has a bounded typed proposal seam and applies authorized metric, flag, phase, and issue-decision effects atomically. Eight deterministic API session paths now visit different issue phases and record decisions, skipped issues and outcomes. They cover compromise, security priority, reconstruction, collective security, self-determination, deadlock, counterfactual labeling, and recovery after a worker lease expires. The recovery case also retries the original request key and checks that only one committed turn results. The deterministic reaction is qualitative and does not assert that any historical actor made that response.
 
-## Verification run on 2026-10-29
+## Local checks recorded on 2026-10-29
+
+The checks in this section ran in a local checkout. They do not establish that GitHub Actions passed.
 
 - scenario validate-all scenarios: 2 manifests validated.
 - Focused schema, loader, engine, research-asset and temporal-gate tests: 48 passed.
@@ -33,3 +35,19 @@ The runtime now has a bounded typed proposal seam and applies authorized metric,
 The source inventory contains stable research links and article/record anchors, but no primary passage corpus has been ingested or rights-cleared for Danish educational deployment. The Library of Congress R13 page and UK Archives R14 page were not retrievable in this run; R17 remains a research lead. Human source review is still required.
 
 The evidence helper enforces date and actor eligibility, rejects unknown scope labels, and conservatively gates aggregate Council records R07/R08 at their latest represented dates until a passage-level policy exists; the citation gate stays closed. It is not a retrieval system: there are no passage/provenance tables, embeddings, hybrid search, or 60-query retrieval benchmark. There is no real inference-backed dialogue provider or formative assessment. The eight scripts exercise deterministic events and API replay; the recovery path expires a persisted worker lease and verifies replay against the same committed request. It does not restart a live process or replace diverse model-turn evaluation, teacher review, classroom pilot, or load/backup-restore work.
+
+## CASES CI remediation — 2026-10-29
+
+The failed [Backend CI run 40868575862](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40868575862) stopped at the byte-exact Versailles bundle pin test. Its Linux checkout computed `040503bf00d0466164ef8893d57b39230109edd394d9711a5f1de91cbecb0282`, while the committed pin was `9cd8ac95cd39d2ffe258ae20509cecf5d14b92b0405c2e26377a213751f028b1`. The digest includes the manifest, version-matched YAML sidecars and recursive `sources/**/*.yaml` files as raw bytes, sorted by relative path. Git stores these YAML files as LF, while this Windows checkout used CRLF because `core.autocrlf=true`; that caused the pin to be generated from different bytes. A fresh LF checkout reproduced the CI digest. No scenario text or immutable version content changed; the pin now matches the reviewed committed bytes, and `.gitattributes` fixes YAML/YML checkout endings to LF.
+
+Added the read-only `verify-bundle-pins` command after `validate-all` in CI. It requires a pin for every bundle-bearing manifest, validates the digest shape, detects mismatches and orphan pins, reports read errors, and never writes pins. Regression tests cover manifest, sidecar, source, and line-ending changes, plus missing, malformed, orphaned, and unreadable pins.
+
+The complete [Backend CI run 40892572079](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40892572079) passed on remediation code commit `f1d63c74fee052dccc4cb63db22fea8c6dfa1c07` in PR [#7](https://github.com/MarcusFunt/IdeHistorieCase/pull/7):
+
+- Scenario validation: 2 manifests; bundle verification: 1 pin.
+- Unit/contract tests: 95 passed, 37 database-gated skipped, 1 deselected.
+- Alembic upgraded a fresh CI database through migration 0004. Database suites passed: integration 1, M2 integration 15, migration preservation 1, scenario runtime 10, scenario repository 7, scenario CLI 2, and scenario API 2 (38 total).
+- Compose validation and no-inference Docker boot passed. `/healthz` and `/readyz` succeeded, status reported `worker=running` and `inference=degraded`, and the fake-turn smoke completed submission, idempotency, processing, resume and replay.
+- Ruff passed for backend code, tests, and `scripts/m2_fake_smoke.py`.
+
+Warnings observed on that run: checkout/setup-python used Node.js 20 and emitted the GitHub deprecation notice; pytest-asyncio emitted the unset fixture-loop-scope warning; Node also emitted a `punycode` deprecation, which needs separate investigation after the action upgrade. The failure-only log step was skipped on this passing run; its behavior before Compose setup is addressed in the follow-up CI changes.
