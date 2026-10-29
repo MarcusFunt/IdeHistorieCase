@@ -66,3 +66,5 @@ PR [#8](https://github.com/MarcusFunt/IdeHistorieCase/pull/8), stacked on PR #7,
 - The failure-only log step was skipped because the run passed. Its guard prints `Compose not started; no container logs available` unless a Compose boot was attempted and the env file exists; boot-attempt failures still collect `compose ps` and logs.
 
 The workflow keeps the existing single `tests` job/check name because the repository's required-check configuration was not established; splitting it could silently change merge requirements. A `codex/**` push trigger was deferred because pull-request events already run CI for review branches. Scenario content and its immutable version were unchanged by either remediation PR.
+
+PR #9 was merged to `main` as `225ebe753eb8102834d9e5e07dbabd94041e181f`. The [push-triggered Backend CI run 40895434667](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/40895434667) on that merged commit completed successfully across every workflow step, including frozen/locked dependency use, the PostgreSQL suites, and the no-inference Compose smoke.
