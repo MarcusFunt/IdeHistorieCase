@@ -44,30 +44,30 @@ jobs:
       - name: Install backend with test dependencies
         run: uv sync --frozen --project backend --extra dev
       - name: Validate authored scenario manifests
-        run: uv run --project backend python -m app.scenarios.cli validate-all scenarios
+        run: uv run --locked --project backend python -m app.scenarios.cli validate-all scenarios
       - name: Verify authored scenario bundle pins
-        run: uv run --project backend python -m app.scenarios.cli verify-bundle-pins scenarios
+        run: uv run --locked --project backend python -m app.scenarios.cli verify-bundle-pins scenarios
       - name: Ruff
         run: |
-          uv run --project backend ruff check backend
-          uv run --project backend ruff check --select E4,E7,E9,F,I scripts/m2_fake_smoke.py backend/tests
+          uv run --locked --project backend ruff check backend
+          uv run --locked --project backend ruff check --select E4,E7,E9,F,I scripts/m2_fake_smoke.py backend/tests
       - name: Unit and contract tests
-        run: uv run --project backend pytest -q backend/tests -k "not heartbeat_insert_and_update"
+        run: uv run --locked --project backend pytest -q backend/tests -k "not heartbeat_insert_and_update"
       - name: Alembic upgrade
         working-directory: backend
-        run: uv run --project . alembic upgrade head
+        run: uv run --locked --project . alembic upgrade head
       - name: Integration tests against PostgreSQL
         working-directory: backend
         env:
           DDU_TEST_DB: "1"
         run: |
-          uv run --project . pytest -q tests/test_integration.py
-          uv run --project . pytest -q tests/test_m2_integration.py
-          uv run --project . pytest -q tests/test_migration_preservation.py
-          uv run --project . pytest -q tests/test_scenario_runtime.py
-          uv run --project . pytest -q tests/test_scenario_repository.py
-          uv run --project . pytest -q tests/test_scenario_cli_db.py
-          uv run --project . pytest -q tests/test_scenario_api.py
+          uv run --locked --project . pytest -q tests/test_integration.py
+          uv run --locked --project . pytest -q tests/test_m2_integration.py
+          uv run --locked --project . pytest -q tests/test_migration_preservation.py
+          uv run --locked --project . pytest -q tests/test_scenario_runtime.py
+          uv run --locked --project . pytest -q tests/test_scenario_repository.py
+          uv run --locked --project . pytest -q tests/test_scenario_cli_db.py
+          uv run --locked --project . pytest -q tests/test_scenario_api.py
       - name: Validate backend Compose project
         run: |
           cp deployment/backend/.env.example deployment/backend/.env
@@ -93,7 +93,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8000/api/v1/status | python -c 'import json,sys; d=json.load(sys.stdin); assert d["database"] and d["worker"]=="running" and d["inference"]=="degraded", d; print(d)'
-          uv run --project backend python scripts/m2_fake_smoke.py --base-url http://127.0.0.1:8000
+          uv run --locked --project backend python scripts/m2_fake_smoke.py --base-url http://127.0.0.1:8000
       - name: Print container logs on failure
         if: failure()
         run: |
