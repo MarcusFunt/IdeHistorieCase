@@ -20,3 +20,6 @@ artifacts/
 *.dump
 # Godot
 .godot/
+
+# Generated historical evaluation runs
+backend/evaluation-results/

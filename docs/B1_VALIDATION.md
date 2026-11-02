@@ -2,6 +2,8 @@
 
 This file records checks that ran in this checkout. It separates completed B1 work, the deterministic B2 slice now exercised, and later research/runtime gates.
 
+**Historical snapshot:** the research-status statements below describe the B1 checkpoint on 2026-10-29, before the B3 retrieval merge. They are not the current retrieval status. The current B3 contracts and outstanding evidence-review gates are in [B3_RAG_RUNBOOK.md](B3_RAG_RUNBOOK.md) and [RETRIEVAL_EVALUATION.md](RETRIEVAL_EVALUATION.md).
+
 ## Authored content
 
 - scenarios/versailles-1919/2.5.yaml: schema version 1, ten reachable phases, twelve dilemmas, ten historical/affected actor entries, and one explicitly fictional playable British adviser.

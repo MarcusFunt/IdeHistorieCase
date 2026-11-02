@@ -1,0 +1,63 @@
+name: historical-retrieval-evaluation
+
+services:
+  client:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    command:
+      - historical-eval
+      - retrieve
+      - --dataset
+      - /srv/backend/evaluation_data/versailles-1919
+      - --split
+      - ${EVAL_SPLIT:-pilot}
+      - --profiles
+      - ${EVAL_PROFILES:-bm25,dense,hybrid,hybrid_rerank}
+      - --output
+      - /results/${EVAL_OUTPUT_NAME:?Set EVAL_OUTPUT_NAME}
+      - --execution-location
+      - ${EVAL_EXECUTION_LOCATION:-local}
+      - --cache-state
+      - ${EVAL_CACHE_STATE:-warm}
+      - --warmup-count
+      - ${EVAL_WARMUP_COUNT:-2}
+      - --embed-url
+      - ${EVAL_EMBED_URL:-http://ddu-embed:8080}
+      - --rerank-url
+      - ${EVAL_RERANK_URL:-http://ddu-rerank:8080}
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      EVAL_EMBED_URL: ${EVAL_EMBED_URL:-http://ddu-embed:8080}
+      EVAL_RERANK_URL: ${EVAL_RERANK_URL:-http://ddu-rerank:8080}
+      EVAL_GENERATOR_URL: ${EVAL_GENERATOR_URL:-http://ddu-llm:8080}
+      EVAL_GENERATOR_MODEL: ${EVAL_GENERATOR_MODEL:-ddu-narrator}
+    volumes:
+      - type: bind
+        source: ${EVAL_DATA_PATH:?Set EVAL_DATA_PATH}
+        target: /srv/backend/evaluation_data/versailles-1919
+        read_only: true
+      - type: bind
+        source: ${EVAL_RESULTS_PATH:?Set EVAL_RESULTS_PATH}
+        target: /results
+        read_only: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    user: "10001:10001"
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2g
+    restart: "no"
+    networks: [inference_bus]
+
+networks:
+  inference_bus:
+    external: true
+    name: ddu_inference_bus

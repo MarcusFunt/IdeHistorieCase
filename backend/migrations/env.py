@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
+import app.history.models  # noqa: F401
 from app.core.settings import get_settings
 from app.db.models import Base
 

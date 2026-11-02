@@ -1,24 +1,24 @@
 # Implementation plan: independently containerized AI educational history game
 
 **Project:** DDU — educational history-of-ideas scenario game  
-**Version:** 1.0, 27 October 2026  
-**Status:** M0–M2 infrastructure and backend prototype implemented; M3–M9 remain proposed work; not classroom-ready
+**Version:** 1.1, 2 November 2026
+**Status:** M0–M2, authored B1 scenario, B3 retrieval infrastructure, offline evaluation harness, and history importer implemented; held-out retrieval acceptance and M3–M9 remain incomplete; not classroom-ready
 **Target:** One-developer MVP, local-first, browser-playable, Danish/English, 1–10 initial players  
 **Key requirement:** The game's model inference must run in Docker **outside, and independently of, the existing AI-Stack Docker deployment**.
 
 ## 0. Executive decision and scope
 
-**Implementation status (28 October 2026):** The external vLLM deployment and the application's M2 backend prototype have been implemented and accepted on the target host. This document now records the as-built boundary and evidence alongside a proposed roadmap; M2 is not a complete playable game or classroom deployment.
+**Implementation status (2 November 2026):** The external model services, M2 backend, authored Versailles B1 scenario, B3 session-scoped retrieval, offline evaluation harness, and Danmarks Breve importer are present. The retrieval dataset has 40 reviewed pilot queries and 0/100 held-out queries; real-model comparison and held-out acceptance remain incomplete. The fake turn worker still does not call a model. This is not a complete playable game or classroom deployment.
 
-- **IdeHistorieCase application repository:** owns the API, PostgreSQL, migrations, durable turn queue, fake turn provider, worker health monitor, and its history-specific structured-output client and schema.
-- **Local-AI-API-LITE repository:** independently owns the pinned vLLM service, model revision/cache, GPU configuration, independent synthetic workloads, benchmarks, and model lifecycle.
+- **IdeHistorieCase application repository:** owns the API, PostgreSQL, migrations, durable turn queue, deterministic fake provider, authored scenarios, session-scoped evidence policy, evaluation harness, and isolated authentic-history schema/importer.
+- **Local-AI-API-LITE repository:** independently owns the pinned chat, embedding, reranking, and optional speech services, model revisions/cache, GPU and CPU configuration, benchmarks, and model lifecycle.
 - The backend works with inference unavailable. `/healthz` reports process liveness; `/readyz` checks PostgreSQL; `/api/v1/status` reports worker and inference health separately. M2 turns use the deterministic fake provider.
-- Only the backend `turn-worker` joins the private `ddu_inference_bus` network. The API and database do not, and the model service has no published host port.
-- The Godot client, complete Versailles scenario, source-grounded RAG, production authentication, and classroom validation remain future work.
+- The API and `turn-worker` join the private `ddu_inference_bus` network; the API uses it for retrieval, while the worker remains deterministic. PostgreSQL does not join that network. The optional evaluation client joins it only for explicit model runs.
+- The authored Versailles scenario and RAG endpoint are implemented, but their complete playable game loop, held-out retrieval acceptance, production ingress, and classroom validation remain future work.
 
 ### Non-goals for the implemented M2 prototype
 
-No complete game loop, continuously listening assistant, multiplayer negotiations, autonomous web ingestion, student grading for high-stakes decisions, external authentication provider, full historical corpus, always-on reranker, model hot swapping, or classroom-ready deployment. Focus future work on a complete, source-grounded Versailles teaching loop. Speech remains optional.
+No complete game loop, continuously listening assistant, multiplayer negotiations, autonomous web ingestion, student grading for high-stakes decisions, external authentication provider, checked-in full historical corpus, always-on reranker, model hot swapping, or classroom-ready deployment. The Danmarks Breve importer is implemented, but its source archive remains external and separate from scenario evidence. Focus future work on a complete, source-grounded Versailles teaching loop. Speech remains optional.
 
 ### Current acceptance snapshot
 
@@ -29,6 +29,9 @@ No complete game loop, continuously listening assistant, multiplayer negotiation
 5. No PostgreSQL or model port is published; the application API is loopback-bound. **Verified.**
 6. Rollback to the original pinned llama.cpp image/model and return to vLLM work without resetting the backend database. **Tested on the target host.**
 7. A student test demonstrates a learning objective with a complete game. **Not implemented.**
+8. The B1 Versailles scenario bundle and B3 RAG API are present; the four RAG excerpts remain staged and unapproved. **Infrastructure implemented; evidence approval and real-model acceptance are pending.**
+9. Offline retrieval evaluation has 40 reviewed pilot queries and no held-out queries. **Draft; no held-out acceptance claim.**
+10. The Danmarks Breve importer and `history_authentic` schema are implemented as a separate source library. **Importer code present; no complete corpus is checked in or implicitly game-eligible.**
 
 ## 1. Architecture, deployment units and trust boundaries
 
@@ -40,33 +43,43 @@ flowchart LR
     API[api: FastAPI]
     Worker[turn-worker: durable fake turns + inference monitor / diagnostic]
     DB[(postgres: application state + job queue)]
+    RAG[Session evidence API and policy]
+    HIST[Separate history_authentic library]
+    EVAL[Offline evaluation client]
     API <--> DB
     Worker <--> DB
   end
   subgraph I[Local-AI-API-LITE repository]
     LLM[vLLM: pinned model service and GPU]
+    EMBED[Qwen embedding service]
+    RERANK[GTE reranking service]
   end
   Player -. future .-> Gateway
   Gateway -. future .-> API
   Worker -->|private ddu_inference_bus| LLM
+  API -->|private ddu_inference_bus| EMBED
+  EVAL -->|explicit benchmark run| EMBED
+  EVAL -->|explicit benchmark run| RERANK
+  RAG --- DB
+  HIST --- DB
 ```
 
 | Boundary | Members | Purpose | Public? |
 |---|---|---|---|
 | Backend `data` network | `api`, `turn-worker`, `postgres` | Application queries, sessions and durable turns | No |
 | Backend `ingress` network | `api` | Host-loopback API and future trusted gateway | API binds to host loopback |
-| External `ddu_inference_bus` | `turn-worker` and the model service from Local-AI-API-LITE | Private cross-repository inference diagnostics | No host port publishing |
+| External `ddu_inference_bus` | backend `api`, `turn-worker`, optional evaluation client, and Local-AI-API-LITE services | Private retrieval and diagnostic inference; the game turn worker remains deterministic | No model-service host port publishing |
 | Existing AI-Stack networks | AI-Stack services only | Unrelated deployments | DDU never joins |
 
 The Docker bridge is a communication boundary, not a multi-tenant security boundary. Attach only trusted local services. The physical GPU remains a shared host resource and may contend with other workloads.
 
 ## 2. Repository structure and ownership
 
-This application repository contains the FastAPI/PostgreSQL implementation under `backend/`, its backend-only Compose project under `deployment/backend/`, fake-turn smoke script, history-specific inference probe, and application documentation. It does not own model weights or model-serving infrastructure.
+This application repository contains the FastAPI/PostgreSQL implementation under `backend/`, the authored Versailles scenario under `scenarios/`, the backend-only Compose project under `deployment/backend/`, the offline evaluator and dataset under `backend/app/evaluation/` and `backend/evaluation_data/`, the separate Danmarks Breve importer under `backend/app/history/`, fake-turn smoke script, history-specific inference probe, and application documentation. It does not own model weights or model-serving infrastructure.
 
 [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) is the separate repository for the vLLM Compose deployment, model download/cache, serving configuration, infrastructure smoke tests, synthetic workload benchmark, host runbook, and GPU measurements. Keep credentials and model weights outside both repositories.
 
-The proposed Godot client, scenario content, RAG corpus, speech services, and future classroom gateway are not part of the current M2 implementation.
+The proposed Godot client and classroom gateway are not implemented. The scenario, RAG API, evaluation harness, and history importer are present but have separate approval and acceptance gates.
 
 ## 3. Deployment ownership and lifecycle
 
@@ -78,7 +91,7 @@ Create or inspect the external Docker bridge `ddu_inference_bus` when preparing 
 
 ### 3.2 Application backend
 
-The backend Compose project at `deployment/backend/compose.yaml` owns `postgres`, the one-shot `migrate` service, `api`, and `turn-worker`. The worker alone joins `ddu_inference_bus`; PostgreSQL and the API remain on the application networks. The current M2 turn provider is deterministic and does not call the model.
+The backend Compose project at `deployment/backend/compose.yaml` owns `postgres`, the one-shot `migrate` service, `api`, and `turn-worker`. The API and worker join `ddu_inference_bus`; PostgreSQL remains on the application networks. The current M2 turn provider is deterministic and does not call the model.
 
 For backend-only development, follow the app repository [README](README.md) and [backend runbook](docs/M1_RUNBOOK.md). An external network object is required by Compose even when the model service is stopped, but fake turns work with inference absent.
 
@@ -99,12 +112,12 @@ Start, stop, and update each project using the runbook in the repository that ow
 | Workload | V1 default | Alternatives | When to change |
 |---|---|---|---|
 | Main LLM | External vLLM service, pinned image and model revision in Local-AI-API-LITE | SGLang or another separate service | Revisit only with model compatibility or measured performance evidence; keep ownership independent |
-| Embeddings | Custom SentenceTransformers CPU-only API, EmbeddingGemma 2 text-only | Qwen3-Embedding-0.6B; TEI if model supported | Select using Danish retrieval accuracy + CPU latency, not benchmark reputation |
+| Embeddings | Local-AI-API-LITE CPU service, Qwen3-Embedding-0.6B at a pinned revision | Other CPU service only after measured evaluation | Current service contract is in `docs/B3_RAG_RUNBOOK.md`; Danish held-out quality is not yet accepted |
 | ASR (optional) | Qwen3-ASR-0.6B in an independently built container | Other local ASR or hosted adapter | Choose after Danish WER and latency tests |
 | TTS (optional) | Chatterbox Multilingual V3 container | Piper CPU fallback; alternative hosted TTS | Choose via Danish naturalness, speaker consistency, real-time factor and stability |
-| Reranker (later) | No reranker | Lightweight cross-encoder, Qwen3 reranker | Add if top-k retrieval benchmarking proves improvement |
+| Reranker | Optional Local-AI-API-LITE GTE multilingual service at a pinned model and code revision | Disable until configured or if measured benefit does not justify cost | Keep optional; pilot results do not show a benefit over dense-only retrieval |
 
-The active LLM profile is documented with image digest, model revision, context/concurrency settings, and host measurements in Local-AI-API-LITE. The remaining embedding, speech, and reranker choices below are proposed future work. The embedding service should load its chosen model once at process startup. Make it expose `POST /v1/embeddings` or a carefully documented dedicated embedding endpoint and return `model_id`, `dimension`, `vectors`, and request timing. Validate that vectors are finite, nonzero, and have the expected length. Use consistent query/document prefixes when required by the chosen model.
+The active LLM and retrieval profiles are documented with model revisions, aliases, limits, and host measurements in Local-AI-API-LITE. The embedding service exposes the versioned `/v1/embeddings` contract; the reranker exposes `/v1/rerank`. Cases verifies pinned identities and capability metadata. Keep speech optional and independently operated.
 
 ### 4.2 No continuous model swapping
 
@@ -123,7 +136,7 @@ The current Qwen3.5 profile was measured at `max_model_len=4096` / `max_num_seqs
 
 ### 4.3 Inference scheduler
 
-For the first version, the `turn-worker` controls calls, with **one in-flight LLM generation per GPU** and bounded wait queues. Treat embedding queries as short tasks, with CPU serving to reduce GPU conflicts. Speech generation is lower priority than receiving the next text response and can be a separate optional job type. Add rate limits per session and global caps to avoid one student monopolizing the GPU.
+Current behavior is narrower: the `turn-worker` is deterministic and does not generate turns with the LLM. The external LLM is used by an explicit diagnostic, while the API can call the CPU embedding service for B3 retrieval and the offline evaluator can call embedding/reranking services during an explicit run. Cases does not start or stop model workers. The one-in-flight generation rule and user-visible queue controls remain requirements for the future M6 turn-generation milestone.
 
 Do not promise independent per-user real-time responses for 10 concurrent students on a single RTX 3060. Benchmark concurrent arrivals at 1, 2, 5, 10 users, and implement user-visible queue/wait states.
 
@@ -138,7 +151,7 @@ Do not promise independent per-user real-time responses for 10 concurrent studen
 
 ## 5. Application/API contracts and request processing
 
-Sections 5–11 describe the proposed playable game, not the current M2 implementation. The M2 endpoints and narrower contracts are documented in the [README](README.md) and [M2 development guide](docs/M2_DEVELOPMENT.md).
+The current application also has B1 scenario and B3 session-evidence endpoints; their implemented contracts are documented in the [README](README.md), [B3 runbook](docs/B3_RAG_RUNBOOK.md), and [M2 development guide](docs/M2_DEVELOPMENT.md). The additional playable-game flow described in Sections 5–11 remains proposed work.
 
 ### 5.1 API endpoints (versioned)
 
@@ -154,6 +167,7 @@ Sections 5–11 describe the proposed playable game, not the current M2 implemen
 | `POST /api/v1/sessions/{id}/turns` | Submit free-text player turn | 202 + turn request ID and status URL |
 | `GET /api/v1/turn-requests/{id}` | Poll turn lifecycle/result | pending/running/completed/failed |
 | `GET /api/v1/sessions/{id}/turns` | History/replay | committed turns |
+| `POST /api/v1/sessions/{id}/evidence/search` | Session-scoped historical evidence search (B3) | filtered, currently approved passages or an explicit no-evidence result |
 | `GET /api/v1/sources/{id}` | Full bibliographic source | approved passage + provenance |
 | `POST /api/v1/speech/transcriptions` | Push-to-talk audio → editable text | optional |
 | `POST /api/v1/speech/synthesis` | Text → voice audio | optional |
@@ -241,9 +255,13 @@ Use `pg_dump -Fc` on a schedule (or a consistent higher-grade backup solution if
 
 ## 7. Knowledge ingestion, RAG and grounded historical simulation
 
+### As-built B3 and source-library boundary
+
+B3 implements session-scoped lexical+dense retrieval, optional GTE reranking, scenario-version and actor/time filters, review/rights checks, and an explicit no-evidence response. Its PostgreSQL schema is introduced by `0005_historical_rag`; the checked-in four Versailles excerpts are staged, not approved. The independent Danmarks Breve importer uses `history_authentic` in the following migration, `0006_history_authentic`. Neither the authentic library nor evaluation judgments are automatically eligible as gameplay evidence. See [B3_RAG_RUNBOOK](docs/B3_RAG_RUNBOOK.md), [HISTORY_CORPUS](docs/HISTORY_CORPUS.md), and [RETRIEVAL_EVALUATION](docs/RETRIEVAL_EVALUATION.md).
+
 ### 7.1 Corpus
 
-Begin with a curated, small Versailles corpus of primary documents and credible secondary analysis. Track title, author, publication date, URL/book reference, license, source type, language, original page/section, full-text checksum, historical period, perspectives and scenario eligibility.
+Continue curating a small Versailles corpus of primary documents and credible secondary analysis. Track title, author, publication date, URL/book reference, license, source type, language, original page/section, full-text checksum, historical period, perspectives and scenario eligibility.
 
 Preserve the distinction:
 
@@ -397,16 +415,20 @@ The table separates the implemented prototype from the remaining game roadmap. E
 | M1 | Independent model service and structured Danish diagnostic | **Accepted** using Local-AI-API-LITE and its pinned vLLM/model profile. |
 | M1.5 | Shared-inference prototype measurements | The older llama.cpp/GGUF measurements are preserved as historical evidence. Current vLLM measurements are in Local-AI-API-LITE. |
 | M2 | Backend Compose, PostgreSQL migrations, health monitor and deterministic fake provider | **Implemented and validated**: authenticated fake turn, retry/idempotency, completion, resume and replay work without inference. This is a backend prototype, not a playable game. |
+| B1 | Authored Versailles scenario, behavior/evidence assets and deterministic scenario runtime | **Implemented**; bundle pins and regression tests are part of backend CI. |
+| B3 | Session-scoped historical retrieval, approval/rights policy, Local-AI-API-LITE clients and `0005_historical_rag` migration | **Code implemented**; checked-in excerpts remain unapproved, and real-model/held-out acceptance is pending. |
+| Evaluation | Offline BM25/dense/hybrid/rerank harness and provenance manifest | **Harness implemented; draft only** with 40 reviewed pilot queries and 0/100 held-out queries. |
+| History library | Danmarks Breve importer and `history_authentic` schema | **Importer implemented** as revision `0006_history_authentic`; corpus files remain external and separate from scenario evidence. |
 | M3 | Godot UI and async turn endpoint/poll/resume | **Proposed**: browser submits, reloads and replays a deterministic mock turn. |
-| M4 | Deterministic scenario rules and complete Versailles text-only flow | **Proposed**: the game reaches reflection under a fake provider with fixed tests. |
-| M5 | Embedding service, curated corpus, hybrid RAG and citation checks | **Proposed**: retrieval evaluation and no fabricated citation IDs. |
+| M4 | Complete Versailles text-only flow | **Proposed**: use the authored scenario and deterministic runtime to reach reflection under a fake provider. |
+| M5 | Held-out retrieval acceptance and evidence approval | **Pending**: populate and independently review the held-out set, run the pinned workers, report metrics/provenance, then decide whether any excerpts can be approved for a scenario. |
 | M6 | Real LLM prompt adapter, schemas, bounded repair and error recovery | **Proposed**: real local full turn with no duplicate state changes. |
 | M7 | Model/GPU benchmarks and 2–10 student load test | **Proposed**: select a stable profile and document limitations. |
 | M8 | Authentication, trusted ingress, observability and backup/restore | **Proposed**: security and restore evidence. |
 | M9 | Learner usability study and report iteration | **Proposed**: record feedback and an iterative improvement. |
 | Optional | ASR, TTS, voice caching and browser audio | **Proposed**; speech can be disabled without blocking text gameplay. |
 
-A credible technical showcase requires the future game, source corpus and evaluation work; classroom readiness also requires security, recovery and student validation. The current acceptance covers the inference foundation and M2 backend prototype only.
+A credible technical showcase requires the playable game and completed retrieval evaluation; classroom readiness also requires security, recovery and student validation. The current acceptance covers infrastructure, deterministic backend behavior and implemented retrieval/import code, not a completed game or accepted held-out retrieval result.
 
 ### Recommended issue / epic sequence
 
@@ -447,14 +469,15 @@ The original checklist is retained here as a project progress record:
 - **Infrastructure and model service — complete:** GPU access, private external network, pinned vLLM image/model revision, host runbook, model health, alias check, structured Danish diagnostic, no published model port, benchmarks, lifecycle recovery, and a rollback to the original llama.cpp image/model without database reset were validated in Local-AI-API-LITE.
 - **Backend minimum — complete for the M2 prototype:** isolated PostgreSQL/API/worker Compose services, migrations, heartbeat diagnostics, deterministic fake turn flow, and external-inference client/probe are implemented in this repository.
 - **Durable turn behavior — implemented and covered:** capability-based sessions, idempotency, expected-turn conflicts, lease/retry handling, atomic completion, and replay.
-- **Frontend, complete scenario, source grounding, and student evaluation — not started:** these remain the next product milestones. M2 does not yet provide the Versailles teaching loop.
+- **Frontend and complete playthrough — not started:** B1 scenario assets and deterministic runtime exist, but there is no complete player-facing Versailles teaching loop.
+- **Source retrieval and importer infrastructure — implemented, acceptance incomplete:** B3 applies rights/reviewer/actor/time gates; the Danmarks Breve corpus is isolated from gameplay. The evaluation benchmark remains draft until held-out queries and independent review exist.
 
 ### Next practical sequence
 
-1. Build the Godot Web vertical slice and reconnect/replay interface.
-2. Author and validate a complete Versailles scenario with deterministic state transitions.
-3. Add a curated, licensed source corpus and evaluate retrieval and citation checks.
-4. Integrate model output into the turn pipeline only with bounded, validated state proposals.
+1. Finish and independently review the 100-query held-out retrieval set, run dense/hybrid/reranked profiles against pinned LITE workers, and publish metrics plus provenance while keeping the dataset status honest.
+2. Build the Godot Web vertical slice with reconnect/replay and use the authored Versailles scenario for a deterministic end-to-end playthrough.
+3. Review and approve a small, rights-cleared Versailles evidence set only after source, actor/time, and scenario-version checks pass.
+4. Integrate model output into the turn pipeline only with bounded, validated state proposals and deterministic state changes.
 5. Harden authentication, retention, backups, recovery, ingress and classroom operations.
 6. Evaluate learning outcomes with students and record evidence-driven revisions.
 
@@ -495,4 +518,4 @@ Possible technical problem questions: (1) how to preserve deterministic game sta
 - Resemble AI — Chatterbox Multilingual/Danish: https://github.com/resemble-ai/chatterbox
 - Godot — Web export/audio constraints: https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html
 
-**Verification note:** The backend Compose project was validated and the backend was exercised with inference both available and stopped on the target host. The current pinned vLLM image/model profile and GPU benchmarks are recorded in Local-AI-API-LITE. The game, scenario, retrieval and classroom sections remain proposed work and still require their own implementation and acceptance evidence.
+**Verification note (2 November 2026):** B1 scenario, B3 retrieval, evaluation, and history-importer code and tests are present. The consolidation validation record separates local unit/contract tests from PostgreSQL/Compose Actions, the live database upgrade, and model-worker acceptance. The current pinned model profiles and speech acceptance are recorded in Local-AI-API-LITE. The Godot client, complete playthrough, held-out evaluation, production ingress, and classroom study remain incomplete.

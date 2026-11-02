@@ -325,7 +325,7 @@ def manifest_paths(root: str | Path) -> list[Path]:
     directory = Path(root)
     if not directory.is_dir():
         raise ValueError(f"scenario directory does not exist: {directory}")
-    excluded = {"sources", "tests"}
+    excluded = {"sources", "tests", "rag"}
     return sorted(
         path for path in directory.rglob("*")
         if path.is_file()
