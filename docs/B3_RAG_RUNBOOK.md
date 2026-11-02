@@ -10,8 +10,8 @@ The first corpus is `scenarios/versailles-1919/rag/corpus.yaml`. Its four excerp
 
 - PostgreSQL 18 with pgvector available to the database user; migration `0005_historical_rag` installs the shared `vector` extension and creates a 1024-dimensional vector column plus HNSW index.
 - The API container must be attached to the existing external `ddu_inference_bus` network and be able to reach `RAG_EMBED_BASE_URL`.
-- The embedding service must implement `POST /embed` with `{"inputs":["text", ...]}` and return one finite, nonzero 1024-number vector per input, in order. Configure `RAG_EMBED_MODEL_ID` to the exact model deployed at that endpoint. The API and stored passage embeddings must use the same model ID.
-- Reranking is optional. To enable it, set `RAG_RERANK_ENABLED=true` and `RAG_RERANK_BASE_URL` to a service implementing `POST /rerank` with `{ "query": "...", "texts": [...], "raw_scores": false }`; it must return one unique indexed normalized score in `[0,1]` per passage.
+- Embeddings use Local-AI-API-LITE `POST /v1/embeddings` with API model `ddu-embed`, `input_type: "document"` for passages, and `input_type: "query"` for search questions. The Qwen worker applies `Instruct: Given a question, retrieve relevant passages that answer the question` to queries only; its advertised instruction version is `qwen3-question-to-passages-en-v1`. The adapter reads `/v1/models` and fails closed unless the API alias, Qwen revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, 1024 dimensions, and instruction version match. It batches at most eight inputs per request. `RAG_EMBED_MODEL_ID` records the pinned model identity in stored vectors: `Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`.
+- Reranking is optional. To enable it, set `RAG_RERANK_ENABLED=true` and `RAG_RERANK_BASE_URL` to Local-AI-API-LITE. The adapter uses `POST /v1/rerank` with API model `ddu-rerank`, query, and documents; it verifies the GTE revision `8215cf04918ba6f7b6a62bb44238ce2953d8831c` and reviewed code revision `40ced75c3017eb27626c9d4ea981bde21a2662f4` from `/v1/models`. GTE returns raw ranking signals, which Cases maps through a monotonic sigmoid into the existing `[0,1]` threshold range; this is a bounded ranking score, not a calibrated probability. Requests are batched at no more than 20 passages. Stored model identity is `Alibaba-NLP/gte-multilingual-reranker-base@8215cf04918ba6f7b6a62bb44238ce2953d8831c+code@40ced75c3017eb27626c9d4ea981bde21a2662f4`.
 - Import the exact authored scenario version before ingesting its corpus. The corpus phase-date map must cover every phase in that version. Importing or activating another scenario version does not change existing sessions' pins.
 - A human reviewer must verify each excerpt against its source anchor, document date, in-world availability, actor visibility, confidentiality, and deployment rights before appending approval. The corpus's rights basis is review context, not a rights decision.
 
@@ -19,7 +19,7 @@ The API's `/readyz` endpoint checks PostgreSQL and intentionally does not requir
 
 ## Deploy and stage
 
-Copy the example environment file, configure the database password and RAG service URLs/model IDs, then start the backend as documented in the root README. The API receives the scenario directory as a read-only mount at `/srv/scenarios` for operator commands.
+Copy the example environment file, configure the database password and RAG service URLs, then start the backend as documented in the root README. Keep the pinned model identity values in `RAG_EMBED_MODEL_ID` and `RAG_RERANK_MODEL_ID` unless a full re-embedding/re-evaluation is planned. The API receives the scenario directory as a read-only mount at `/srv/scenarios` for operator commands.
 
 Validate the scenario, corpus, and labeled evaluation set:
 

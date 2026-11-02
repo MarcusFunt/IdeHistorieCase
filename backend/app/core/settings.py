@@ -1,4 +1,5 @@
 """Settings originate from container environment; no secrets are embedded in source."""
+
 from functools import lru_cache
 from typing import Self
 from urllib.parse import urlsplit
@@ -21,12 +22,21 @@ class Settings(BaseSettings):
     llm_model_alias: str = Field(default="ddu-narrator", min_length=1, max_length=128)
     llm_enable_thinking: bool | None = None
     rag_embed_base_url: str = Field(default="http://ddu-embed:8080", min_length=1, max_length=2048)
-    rag_embed_model_id: str = Field(default="Qwen/Qwen3-Embedding-0.6B", min_length=1, max_length=160)
+    rag_embed_model_id: str = Field(
+        default="Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        min_length=1,
+        max_length=160,
+    )
     rag_embed_timeout_seconds: float = Field(default=15.0, ge=0.1, le=120.0)
     rag_rerank_enabled: bool = False
     rag_rerank_base_url: str | None = Field(default=None, max_length=2048)
     rag_rerank_model_id: str = Field(
-        default="Alibaba-NLP/gte-multilingual-reranker-base", min_length=1, max_length=160
+        default=(
+            "Alibaba-NLP/gte-multilingual-reranker-base@8215cf04918ba6f7b6a62bb44238ce2953d8831c"
+            "+code@40ced75c3017eb27626c9d4ea981bde21a2662f4"
+        ),
+        min_length=1,
+        max_length=160,
     )
     rag_rerank_timeout_seconds: float = Field(default=20.0, ge=0.1, le=120.0)
     rag_candidate_limit: int = Field(default=20, ge=2, le=100)
