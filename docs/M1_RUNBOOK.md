@@ -22,7 +22,7 @@ docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/
 
 ## Optional real-model diagnostic
 
-Start Local-AI-API-LITE using its own runbook and configuration. It must join `ddu_inference_bus`, advertise the configured `LLM_MODEL_ALIAS` (default `ddu-narrator`), and have no published model port. The backend worker is the only backend service attached to that network.
+Start Local-AI-API-LITE using its own runbook and configuration. It must join `ddu_inference_bus`, advertise the configured `LLM_MODEL_ALIAS` (default `ddu-narrator`), and have no published model port. The backend `turn-worker` uses the network for the optional narrator diagnostic; the API also joins it for the separately configured `ddu-embed` retrieval service. PostgreSQL stays off the inference network.
 
 With both deployments running, run from this repository root:
 
@@ -30,7 +30,7 @@ With both deployments running, run from this repository root:
 bash scripts/m1_smoke.sh
 ```
 
-The script checks backend and database health, the private model health endpoint, worker/model status, the history application's strict Danish response schema, and the deterministic fake M2 turn. The model diagnostic is separate from M2 session processing; M2 turn results continue to come from the fake provider.
+The script checks backend and database health, the private narrator health endpoint, worker/model status, the history application's strict Danish response schema, and the deterministic fake M2 turn. The model diagnostic is separate from M2 session processing; M2 turn results continue to come from the fake provider. Historical evidence queries additionally require the pinned `ddu-embed` retrieval worker; `/readyz` and fake turns do not.
 
 To check inference failure and recovery, stop and restart the model through the Local-AI-API-LITE project only. The backend and database should remain up; after the heartbeat poll, `/api/v1/status` reports `degraded`, then returns to `ready` when the model is available again. `/readyz` stays 200 because it reflects database readiness. The old pinned llama.cpp runtime and verified GGUF have also been exercised as a rollback path without resetting the application database; the evidence is recorded in Local-AI-API-LITE `docs/CUTOVER_AND_ROLLBACK.md`.
 

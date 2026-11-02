@@ -65,12 +65,16 @@ class _BaseLiteClient:
         expected_task: str,
         expected_revision: str,
         http: httpx.Client,
+        required_capabilities: dict[str, Any],
+        minimum_limits: dict[str, int],
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.expected_alias = expected_alias
         self.expected_task = expected_task
         self.expected_revision = expected_revision
         self.http = http
+        self.required_capabilities = required_capabilities
+        self.minimum_limits = minimum_limits
         self.identity: ModelIdentity | None = None
 
     def preflight(self) -> ModelIdentity:
@@ -118,6 +122,19 @@ class _BaseLiteClient:
         limits = record.get("limits")
         if not isinstance(capabilities, dict) or not isinstance(limits, dict):
             raise LiteClientError(f"{self.expected_alias} metadata omitted capabilities or limits")
+        for name, expected in self.required_capabilities.items():
+            if capabilities.get(name) != expected:
+                raise LiteClientError(
+                    f"{self.expected_alias} capability {name} mismatch: expected {expected!r}, "
+                    f"received {capabilities.get(name)!r}"
+                )
+        for name, minimum in self.minimum_limits.items():
+            actual = limits.get(name)
+            if isinstance(actual, bool) or not isinstance(actual, int) or actual < minimum:
+                raise LiteClientError(
+                    f"{self.expected_alias} limit {name} must be at least {minimum}, "
+                    f"received {actual!r}"
+                )
         self.identity = ModelIdentity(
             alias=self.expected_alias,
             task=task,
@@ -146,6 +163,14 @@ class LiteEmbeddingClient(_BaseLiteClient):
             "embedding",
             expected_revision,
             http or httpx.Client(timeout=httpx.Timeout(60.0), trust_env=False),
+            required_capabilities={
+                "dimensions": EMBEDDING_DIMENSION,
+                "normalized": True,
+                "dtype": "float32",
+                "input_types": ["query", "document"],
+                "query_instruction_version": QWEN_QUERY_INSTRUCTION_VERSION,
+            },
+            minimum_limits={"max_batch_size": EMBEDDING_BATCH_SIZE},
         )
 
     def embed_queries(self, texts: list[str]) -> EmbeddingBatch:
@@ -248,6 +273,11 @@ class LiteRerankerClient(_BaseLiteClient):
             "rerank",
             expected_revision,
             http or httpx.Client(timeout=httpx.Timeout(60.0), trust_env=False),
+            required_capabilities={
+                "score_semantics": "raw_ranking_signal",
+                "code_revision": GTE_CODE_REVISION,
+            },
+            minimum_limits={"max_candidate_pairs": RERANKING_BATCH_SIZE},
         )
 
     def rerank(self, query: str, documents: list[str], top_n: int) -> RerankingBatch:

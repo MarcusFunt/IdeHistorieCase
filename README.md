@@ -1,16 +1,18 @@
-# IdeHistorieCase — M2 backend prototype
+# IdeHistorieCase — deterministic backend and historical retrieval prototype
 
-The current application milestone is an M2 backend prototype: FastAPI, PostgreSQL 18, durable session-scoped turns, replay, and a deterministic fake provider. It is **not** a complete playable game or a classroom-ready deployment. The fake turn worker does not call a model.
+The repository contains the M2 durable backend, authored Versailles 1919 scenario, B3 session-scoped historical RAG, an offline retrieval-evaluation harness, and an isolated Danmarks Breve source-library importer. The game turn worker still uses a deterministic fake provider. This is **not** a complete playable game or a classroom-ready deployment.
 
 ## Service ownership
 
 | Part | Owner | Current role |
 |---|---|---|
 | History API, database, migrations, durable queue and fake provider | This repository (`ddu-backend`) | Application state and deterministic M2 development |
-| vLLM, model cache, checkpoint, GPU and serving limits | [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) | Independent shared inference service |
+| vLLM, embedding, reranking, model cache, checkpoints, GPU and serving limits | [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) | Independently owned inference services |
 | History-specific model request and Danish diagnostic schema | This repository | A narrow client adapter used by the worker monitor and explicit probe |
+| Scenario-approved historical evidence and retrieval policy | This repository | Session-scoped evidence search; the checked-in Versailles excerpts remain unapproved |
+| Retrieval evaluation and authentic history library | This repository | Offline benchmark and a separate, immutable `history_authentic` schema |
 
-`turn-worker` and the API join the external Docker network `ddu_inference_bus`. The API uses it only for historical embedding search; `turn-worker` remains on the deterministic fake provider. PostgreSQL does not join that network. The model services are not started or changed by this repository. The llama.cpp/GGUF runs recorded in [M1.5 validation](docs/M1_5_VALIDATION.md) are historical evidence; they are not the current inference deployment.
+`turn-worker`, the API, and the optional evaluation client join the external Docker network `ddu_inference_bus`. The API uses it for historical retrieval; `turn-worker` remains on the deterministic fake provider. PostgreSQL does not join that network. Cases does not start or change model services. The llama.cpp/GGUF runs recorded in [M1.5 validation](docs/M1_5_VALIDATION.md) are historical evidence; they are not the current inference deployment.
 
 ## Run M2 locally without a model
 
@@ -32,6 +34,8 @@ curl -fsS http://127.0.0.1:8000/api/v1/status
 python scripts/m2_fake_smoke.py --base-url http://127.0.0.1:8000
 ```
 
+The host API port defaults to `8000`. If another local service uses it, set `API_HOST_PORT=18081` (or another free port) in `deployment/backend/.env` and use that port for the health checks and smoke command. Compose binds the API to `127.0.0.1` in either case.
+
 `/healthz` is process liveness and `/readyz` checks PostgreSQL. Neither depends on inference. With no model service, `/api/v1/status` reports inference as degraded while the fake turn and replay still work. The smoke script writes one synthetic session to the configured database and prints no bearer capability. The API is bound to host loopback; Compose publishes no database port.
 
 Do not use `docker compose down -v` for routine shutdown; it can remove the PostgreSQL volume.
@@ -52,7 +56,23 @@ See the [backend runbook](docs/M1_RUNBOOK.md), [shared inference client contract
 
 The additive session evidence endpoint returns only immutable passages that have a current approved review and approved rights status. The checked-in [Versailles 1919 corpus](scenarios/versailles-1919/rag/corpus.yaml) is staged and pending review; it returns `RAG_NO_EVIDENCE` until an operator approves passages. Source catalog URLs alone are not searchable evidence. Follow the [B3 RAG runbook](docs/B3_RAG_RUNBOOK.md) to validate, ingest, review, and query passages.
 
-The endpoint is `POST /api/v1/sessions/{session_id}/evidence/search` with the existing session bearer token and `{"query":"...","top_k":5}`. Actor, pinned scenario version, phase date, and the reflection postgame view come from persisted session/scenario data. Historical RAG does not participate in the M2 turn queue or dialogue provider.
+The endpoint is `POST /api/v1/sessions/{session_id}/evidence/search` with the existing session bearer token and `{"query":"...","top_k":5}`. Actor, pinned scenario version, phase date, and the reflection postgame view come from persisted session/scenario data. Historical RAG does not participate in the M2 turn queue or dialogue provider. The Danmarks Breve library remains separate and is not automatically eligible as game evidence; see [HISTORY_CORPUS](docs/HISTORY_CORPUS.md).
+
+## Retrieval evaluation
+
+The offline harness compares BM25, dense Qwen, hybrid, and hybrid plus GTE retrieval. The current dataset has 40 agent-reviewed pilot queries and an empty 0/100 held-out split. Its manifest remains `draft`; no held-out or model-comparison acceptance claim is supported yet. See [RETRIEVAL_EVALUATION](docs/RETRIEVAL_EVALUATION.md) for validation, traces, review provenance, and worker pins.
+
+## Test the current data and commands
+
+```sh
+uv run --locked --project backend python -m app.scenarios.cli validate-all scenarios
+uv run --locked --project backend python -m app.scenarios.cli verify-bundle-pins scenarios
+uv run --locked --project backend rag validate scenarios/versailles-1919/rag/corpus.yaml
+uv run --locked --project backend rag validate-eval backend/evaluation_data/versailles-1919/rag_cases.yaml
+uv run --locked --project backend historical-eval validate --dataset backend/evaluation_data/versailles-1919
+```
+
+`historical-eval retrieve --split pilot --profiles bm25 --output <outside-the-repository>` runs the lexical pilot without contacting model services. Dense and reranked profiles require the matching live Local-AI-API-LITE workers. Keep generated traces and review packets out of Git.
 
 ## Development checks
 
