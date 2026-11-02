@@ -4,7 +4,7 @@ This record separates static checks, unit tests, PostgreSQL integration, Compose
 
 ## Static, package, and offline checks
 
-Environment: Python 3.13 in `python:3.13-slim`; host `uv 0.11.21`. The project lock was installed with `uv sync --frozen --extra dev`.
+Environment: Python 3.13.5 via `uv`; host `uv 0.11.21`; Docker production/test images use `python:3.13-slim`. The project lock was installed with `uv sync --frozen --extra dev`.
 
 | Check | Result |
 |---|---|
@@ -14,7 +14,7 @@ Environment: Python 3.13 in `python:3.13-slim`; host `uv 0.11.21`. The project l
 | `uv run --locked alembic history` | Linear 0001 → 0002 → 0003 → 0004 → 0005 → 0006. |
 | `uv run --locked alembic upgrade 0005_historical_rag:head --sql` | Passed; emits only the additive 0006 upgrade. |
 | Host `uv run --locked pytest -q tests` | 167 passed, 46 PostgreSQL-gated skipped. |
-| Isolated PostgreSQL full suite | 213 passed, 0 skipped (details below). |
+| Isolated PostgreSQL full suite | 213 passed, 0 skipped in 18.84 seconds (details below). |
 
 The offline BM25 pilot was run outside Git at `D:\projects\IdeHistorieCase-snapshots\cases-pilot-bm25-20261102`. It reports 40/40 reviewed pilot traces but is incomplete for other profiles and held-out data. The dataset validator reports 0 errors, 0/100 held-out queries, and `draft` status.
 
@@ -22,7 +22,7 @@ The offline BM25 pilot was run outside Git at `D:\projects\IdeHistorieCase-snaps
 
 An isolated Docker Compose project `cases-consolidation-test` used its own `cases-consolidation-test_pgdata` volume and test-only database. It was not connected to the running Cases database volume. A fresh database migrated through all revisions to `0006_history_authentic`.
 
-The current Cases pre-upgrade custom-format backup was restored into a separate database on the isolated PostgreSQL server. Before the upgrade it reported:
+An initial current Cases pre-upgrade custom-format backup was restored into a separate database on the isolated PostgreSQL server and validated through upgrade and rollback. Immediately before the actual live upgrade, a fresh backup was made from the current database. After the live upgrade completed, that exact archive was restored into a second isolated database and upgraded as an additional verification. The exact archive reported `0005_historical_rag` and these counts before migration:
 
 ```text
 revision=0005_historical_rag
@@ -41,14 +41,16 @@ historical_passages=0, reviews=0, embeddings=0, rag_policies=0
 history_authentic tables=5, vector extension=present
 ```
 
-The clone proves the new migration preserves the backed-up row counts while adding the isolated history schema. The full PostgreSQL test suite ran with `DDU_TEST_DB=1` and a disposable history test database: **213 passed in 18.84 seconds**. It includes clean migration, populated M2 migration preservation, scenario/API/RAG database tests, history importer idempotence/immutability, and migration graph assertions.
+After upgrade, that exact-backup clone reported `0006_history_authentic`, five `history_authentic` tables, and the same M2/B3 counts. A downgrade to 0005 and upgrade back to 0006 also passed on the separate clone. The full PostgreSQL test suite ran with `DDU_TEST_DB=1` and a disposable history test database: **213 passed in 18.84 seconds**. It includes clean migration, populated M2 migration preservation, scenario/API/RAG database tests, history importer idempotence/immutability, and migration graph assertions.
 
 Backup used for the clone:
 
 ```text
-D:\projects\IdeHistorieCase-snapshots\cases-db-pre-0006-20261102-0d2479ec36c64a0bac6caa68c3a4979f\ddu-backend-pre-0006.dump
-SHA-256: `780e83c0c229febf6b9de493e139870fa8a51d8146818c0071b2e9d5b6559e14`
+D:\projects\IdeHistorieCase-snapshots\cases-db-pre-0006-live-20261102-154751\ddu-backend-pre-0006.dump
+SHA-256: `df19e9c42784a7865f8c10bfa5d7120b12a6182a91aea3c8a3f0bc904e2eb13d`
 ```
+
+The fresh archive is 44,079 bytes with 91 restore-list entries. Its `backup-manifest.json` records container, revision, and volume. The earlier backup at `D:\projects\IdeHistorieCase-snapshots\cases-db-pre-0006-20261102-0d2479ec36c64a0bac6caa68c3a4979f` remains intact.
 
 ## Compose and API smoke
 
@@ -61,15 +63,17 @@ The isolated Compose project uses host port 18082 and its separate `cases-consol
 - The Cases `rag ingest` command sent the four checked-in passages to that worker in the isolated test DB. After a test-only review row was added (explicitly marked as not a production rights/evidence approval), the session evidence API returned `status=ok`, passage `fourteen_points_open_covenants`, source `R04` for an English query. No token was printed. The live API request exercised the Cases request/response path, not just the mocked client contract.
 - The reranker was not started; production defaults keep reranking disabled.
 
-During this live check Docker Desktop disconnected twice. Docker reported the test-started embed and previously running speech containers exited with code 255 and `OOMKilled=false`. The existing Cases API and database were rechecked after Docker Desktop recovered and `/readyz` returned ready; the live DB remained at `0005_historical_rag`. The pre-existing speech services were restarted from their LITE Compose project. The embedding worker was not running before this test and was left stopped after the smoke. No database volume was deleted or recreated.
+During this live check Docker Desktop disconnected twice. Docker reported the test-started embed and previously running speech containers exited with code 255 and `OOMKilled=false`. The existing Cases API and database were rechecked after Docker Desktop recovered and `/readyz` returned ready. The pre-existing speech services were restarted from their LITE Compose project and are now healthy; Qwen TTS used 258 MiB / 1 GiB and reported no OOM. The embedding worker was not running before this test and is currently stopped. No database volume was deleted or recreated.
 
 ## Live retrieval and production database update
 
-Live retrieval acceptance is recorded above, against the isolated database only. The existing production Cases DB was at `0005_historical_rag` when the backup above was taken. The user explicitly instructed that this running stack be updated in place; after the review branch Actions pass, run the already tested migration on that existing volume and update only its API/turn-worker images. No live database mutation has occurred yet.
+Live retrieval acceptance is recorded above, against the isolated database only. After [Actions run 41465086514](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/41465086514) passed on implementation commit `9584649cabb12ee263e3c42e5d25e4999f10989f`, the current Cases stack was migrated in place with the verified backup above. `alembic upgrade head` ran from the consolidation worktree using project `ddu-backend`; the existing `ddu-backend_pgdata` volume now reports `0006_history_authentic`. Counts remain: 2 sessions, 1 request, 1 committed turn, 1 event, 2 scenario versions; 0 RAG passage/review/embedding/policy rows; 5 tables in `history_authentic`; pgvector is present.
+
+The API and turn-worker were rebuilt and recreated from the consolidation branch against the same database volume. Post-update checks returned `/healthz` alive, `/readyz` ready/database true, and `/api/v1/status` database true, worker running, inference ready. The port remains loopback `127.0.0.1:18081`. No synthetic session or passage approval was written to the production database. The live retrieval smoke used the isolated test database described above.
 
 ## GitHub Actions
 
-Pending final pushed head. PR review does not imply merge; this consolidation remains a review branch until the user merges it.
+[Backend CI run 41465086514](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/41465086514) passed all steps on implementation commit `9584649cabb12ee263e3c42e5d25e4999f10989f`, including PostgreSQL integration, Compose validation, and no-inference backend build/boot. The operational validation record is a docs-only follow-up commit; its Actions run is linked from draft PR #11. The PR remains open and unmerged.
 
 ## Known limits
 

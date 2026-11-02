@@ -4,7 +4,9 @@
 
 **Baseline:** `origin/main` at `b65faad48db261220db34b64d6da8dd4cdc22905`
 
-**Status:** review branch; not merged to `main`. Final consolidation commit: recorded after this document is committed.
+**Implementation commit:** `9584649cabb12ee263e3c42e5d25e4999f10989f`
+
+**Review:** [draft PR #11](https://github.com/MarcusFunt/IdeHistorieCase/pull/11), not merged to `main`.
 
 ## Source lineage
 
@@ -30,6 +32,8 @@ The independent RAG config correction aligns Docker Compose fallback model IDs w
 ```
 
 The history migration adds a new `history_authentic` schema. It does not replace or rename M2, scenario, or B3 tables. The full Danmarks Breve ZIP and extracted release are not committed.
+
+After the user explicitly authorized updating the currently running Cases stack, the existing `ddu-backend_pgdata` volume was upgraded in place on 2026-11-02. A fresh pre-upgrade backup was made and a restored clone of that exact backup was upgraded first; details are in [CONSOLIDATION_VALIDATION.md](CONSOLIDATION_VALIDATION.md).
 
 ## Protected Versailles content
 
