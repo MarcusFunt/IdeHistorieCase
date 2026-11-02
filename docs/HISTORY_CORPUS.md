@@ -4,6 +4,8 @@ The backend can import the Royal Danish Library's `Danmarks Breve` v3.1.0 releas
 
 Its tables are added by Alembic revision `0006_history_authentic`, after the B3 `0005_historical_rag` revision. This additive schema leaves the M2 and RAG tables intact. Versailles scenario evidence remains governed by its own approval and rights workflow; importing this library does not approve or expose its passages to gameplay.
 
+> **Production downgrade warning:** `0006_history_authentic.downgrade()` executes `DROP SCHEMA history_authentic CASCADE`. It removes all five history tables and any imported releases, documents, and passages. Do not use this downgrade as routine production recovery. The current live Cases database was upgraded to 0006 on 2026-11-02 and has no imported release data yet; that empty state is not a guarantee about future deployments. A downgrade or restore for a data-bearing deployment requires a fresh, independently verified full-database backup and a separately reviewed recovery/cutover plan. A downgrade/re-upgrade rehearsal on a disposable clone does not authorize doing it on production. Prefer a forward fix. See [the backend runbook](M1_RUNBOOK.md#current-host-compatibility-and-recovery) for the live source/database compatibility boundary.
+
 The importer pins the supplied source archive by SHA-256:
 
 ```text

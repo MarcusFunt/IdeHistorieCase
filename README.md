@@ -14,6 +14,8 @@ The repository contains the M2 durable backend, authored Versailles 1919 scenari
 
 `turn-worker`, the API, and the optional evaluation client join the external Docker network `ddu_inference_bus`. The API uses it for historical retrieval; `turn-worker` remains on the deterministic fake provider. PostgreSQL does not join that network. Cases does not start or change model services. The llama.cpp/GGUF runs recorded in [M1.5 validation](docs/M1_5_VALIDATION.md) are historical evidence; they are not the current inference deployment.
 
+> Before starting or redeploying an existing Cases host, read the [current host compatibility and recovery runbook](docs/M1_RUNBOOK.md#current-host-compatibility-and-recovery). The current host database is at migration `0006_history_authentic`; a pre-merge `main` checkout ending at `0004_multiple_events_per_turn` is not compatible with it.
+
 ## Run M2 locally without a model
 
 Requirements: Docker Compose v2 and Python 3.13 for local test commands. The backend works with no inference service running.

@@ -13,8 +13,10 @@ Environment: Python 3.13.5 via `uv`; host `uv 0.11.21`; Docker production/test i
 | `uv run --locked alembic heads` | Exactly one head: `0006_history_authentic`. |
 | `uv run --locked alembic history` | Linear 0001 → 0002 → 0003 → 0004 → 0005 → 0006. |
 | `uv run --locked alembic upgrade 0005_historical_rag:head --sql` | Passed; emits only the additive 0006 upgrade. |
-| Host `uv run --locked pytest -q tests` | 167 passed, 46 PostgreSQL-gated skipped. |
-| Isolated PostgreSQL full suite | 213 passed, 0 skipped in 18.84 seconds (details below). |
+| Host `uv run --locked pytest -q tests` | 185 passed, 46 PostgreSQL-gated skipped. |
+| Isolated PostgreSQL full suite | 231 passed, 0 skipped in 23.82 seconds on a fresh disposable `pgvector/pgvector:0.8.7-pg18-trixie` container, with both `DDU_TEST_DB=1` and `HISTORY_TEST_DATABASE_URL` configured. |
+| Focused merge-readiness regression tests | 28 passed across evaluation manifest hashes, LITE reranker response validation, and RAG admission characterization. |
+| CI coverage addition | Backend CI now runs the two database-backed history importer tests with the isolated CI PostgreSQL service; this was previously skipped because its dedicated test URL was absent. |
 
 The offline BM25 pilot was run outside Git at `D:\projects\IdeHistorieCase-snapshots\cases-pilot-bm25-20261102`. It reports 40/40 reviewed pilot traces but is incomplete for other profiles and held-out data. The dataset validator reports 0 errors, 0/100 held-out queries, and `draft` status.
 
@@ -41,7 +43,7 @@ historical_passages=0, reviews=0, embeddings=0, rag_policies=0
 history_authentic tables=5, vector extension=present
 ```
 
-After upgrade, that exact-backup clone reported `0006_history_authentic`, five `history_authentic` tables, and the same M2/B3 counts. A downgrade to 0005 and upgrade back to 0006 also passed on the separate clone. The full PostgreSQL test suite ran with `DDU_TEST_DB=1` and a disposable history test database: **213 passed in 18.84 seconds**. It includes clean migration, populated M2 migration preservation, scenario/API/RAG database tests, history importer idempotence/immutability, and migration graph assertions.
+After upgrade, that exact-backup clone reported `0006_history_authentic`, five `history_authentic` tables, and the same M2/B3 counts. A downgrade to 0005 and upgrade back to 0006 also passed on the separate clone. The full PostgreSQL test suite ran against a fresh disposable PostgreSQL 18/pgvector 0.8.7 container with `DDU_TEST_DB=1` and `HISTORY_TEST_DATABASE_URL` pointing only to that container: **231 passed, 0 skipped in 23.82 seconds**. It includes clean migration, populated M2 migration preservation, scenario/API/RAG database tests, history importer idempotence/immutability and failure atomicity, and migration graph assertions. The disposable container was stopped and removed after the run; it did not use the live `ddu-backend_pgdata` volume.
 
 Backup used for the clone:
 
@@ -71,9 +73,17 @@ Live retrieval acceptance is recorded above, against the isolated database only.
 
 The API and turn-worker were rebuilt and recreated from the consolidation branch against the same database volume. Post-update checks returned `/healthz` alive, `/readyz` ready/database true, and `/api/v1/status` database true, worker running, inference ready. The port remains loopback `127.0.0.1:18081`. No synthetic session or passage approval was written to the production database. The live retrieval smoke used the isolated test database described above.
 
+### Host source and migration compatibility checkpoint
+
+A read-only host inspection on 2026-11-02 confirmed that pre-merge GitHub `main` is at migration `0004_multiple_events_per_turn`, while PR #11's branch and the running API/worker are compatible with `0006_history_authentic`. The original `D:\projects\IdeHistorieCase` checkout remains on the B3 feature branch and is not the running API source. The running API and worker Compose labels identify `D:\projects\IdeHistorieCase-consolidation`; PostgreSQL and an exited legacy `migrate` container retain Compose labels from the original checkout. This is mixed historical container metadata within the same Compose project, not a second active Cases database. The existing `ddu-backend_pgdata` volume was preserved.
+
+The inspection independently matched 62/62 API, migration, and configuration source files against the consolidation checkout, plus five sampled worker files. These checksum comparisons are reported from that prior host inspection and were not repeated during this documentation/code hardening pass. Read-only database/API checks confirmed Alembic current/head `0006_history_authentic`, 2 sessions, 1 request, 1 committed turn, 1 event, 2 scenario versions, zero B3 passage/review/embedding/policy rows, five `history_authentic` tables with zero releases/documents/passages, and HTTP 200 from `/healthz`, `/readyz`, and `/api/v1/status`.
+
+Do not run the pre-merge `main` or the older B3 checkout against this 0006 database. The fresh pre-upgrade dump above is from migration 0005, so restoring it can lose transactions written after its snapshot. Recovery and downgrade limits are documented in [the backend runbook](M1_RUNBOOK.md#current-host-compatibility-and-recovery) and [the history corpus guide](HISTORY_CORPUS.md#danmarks-breve-authentic-corpus).
+
 ## GitHub Actions
 
-[Backend CI run 41465086514](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/41465086514) passed all steps on implementation commit `9584649cabb12ee263e3c42e5d25e4999f10989f`, including PostgreSQL integration, Compose validation, and no-inference backend build/boot. The operational validation record is a docs-only follow-up commit; its Actions run is linked from draft PR #11. The PR remains open and unmerged.
+[Backend CI run 41465086514](https://github.com/MarcusFunt/IdeHistorieCase/actions/runs/41465086514) passed all steps on implementation commit `9584649cabb12ee263e3c42e5d25e4999f10989f`, including PostgreSQL integration, Compose validation, and no-inference backend build/boot. It is historical baseline evidence, not a check on the merge-readiness changes in this record. The final merge-readiness Actions URL and head SHA are recorded in draft PR #11 after that run completes; do not use the baseline run as proof for a later head.
 
 ## Known limits
 

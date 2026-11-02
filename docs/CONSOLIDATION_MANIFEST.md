@@ -66,3 +66,7 @@ The Danmarks branch's deletions of scenario assets and tests were not imported. 
 ## Evaluation status
 
 The checked-in evaluation manifest remains `draft`: 40 reviewed pilot queries and 0/100 held-out queries. Do not treat the pilot as held-out acceptance or promote generated result artifacts into Git. See [RETRIEVAL_EVALUATION.md](RETRIEVAL_EVALUATION.md).
+
+## PR #11 merge-readiness hardening
+
+The focused follow-up makes missing required evaluation file hashes fatal while retaining draft/empty-heldout warnings, rejects boolean or string coercions in LITE reranker responses while preserving finite negative raw scores, and characterizes the existing RAG policy that any passing retrieval signal can admit an otherwise eligible passage. No applied migration was changed. Backend CI now runs the database-backed history importer tests against its disposable PostgreSQL service. The verified live source/database compatibility and downgrade warning are in [the backend runbook](M1_RUNBOOK.md#current-host-compatibility-and-recovery); local and PostgreSQL test evidence is in [the validation record](CONSOLIDATION_VALIDATION.md). The final PR head and its Actions URL are linked from PR #11 after the merge-readiness run finishes.
