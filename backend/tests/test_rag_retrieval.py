@@ -161,6 +161,30 @@ async def test_optional_reranker_changes_order_using_injected_scores():
 
 
 @pytest.mark.asyncio
+async def test_low_rerank_score_does_not_veto_eligible_lexical_candidate():
+    repository = FakeRepository(
+        lexical=[candidate("first", lexical=0.2)],
+        dense=[],
+    )
+    service = RagSearchService(
+        repository,
+        FakeEmbedder(),
+        reranker=FakeReranker([0.1]),
+        config=RagSearchConfig(
+            min_lexical_score=0.03,
+            min_dense_similarity=0.6,
+            min_rerank_score=0.2,
+        ),
+    )
+
+    result = await service.search("What happened?", context(), top_k=1)
+
+    assert result.status == "ok"
+    assert [item.passage.passage_key for item in result.passages] == ["first"]
+    assert result.passages[0].rerank_score == 0.1
+
+
+@pytest.mark.asyncio
 async def test_low_relevance_scores_and_revoked_final_decisions_return_no_evidence():
     low_score_repository = FakeRepository(
         lexical=[candidate("first", lexical=0.001)],
