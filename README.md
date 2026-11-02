@@ -10,7 +10,7 @@ The current application milestone is an M2 backend prototype: FastAPI, PostgreSQ
 | vLLM, model cache, checkpoint, GPU and serving limits | [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) | Independent shared inference service |
 | History-specific model request and Danish diagnostic schema | This repository | A narrow client adapter used by the worker monitor and explicit probe |
 
-Only `turn-worker` joins the external Docker network `ddu_inference_bus`. PostgreSQL and the API do not. The model API is not started by this repository. The llama.cpp/GGUF runs recorded in [M1.5 validation](docs/M1_5_VALIDATION.md) are historical evidence; they are not the current inference deployment.
+`turn-worker` and the API join the external Docker network `ddu_inference_bus`. The API uses it only for historical embedding search; `turn-worker` remains on the deterministic fake provider. PostgreSQL does not join that network. The model services are not started or changed by this repository. The llama.cpp/GGUF runs recorded in [M1.5 validation](docs/M1_5_VALIDATION.md) are historical evidence; they are not the current inference deployment.
 
 ## Run M2 locally without a model
 
@@ -21,7 +21,7 @@ docker network inspect ddu_inference_bus >/dev/null 2>&1 || docker network creat
 cp deployment/backend/.env.example deployment/backend/.env
 ```
 
-Edit `deployment/backend/.env` and set a long random `POSTGRES_PASSWORD`. The external inference URL and alias may stay at their defaults while developing fake turns. Then start only the backend project:
+Edit `deployment/backend/.env` and set a long random `POSTGRES_PASSWORD`. Fake turns work without inference. Historical RAG requires a reachable `ddu-embed` service on `ddu_inference_bus`; its URL and model ID can stay at their defaults when the shared deployment uses those names. Then start the backend project:
 
 ```sh
 docker compose -f deployment/backend/compose.yaml --env-file deployment/backend/.env config --quiet
@@ -38,7 +38,7 @@ Do not use `docker compose down -v` for routine shutdown; it can remove the Post
 
 ## Optional external model diagnostic
 
-For a real vLLM endpoint, start and validate [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) using its own runbook. Configure the backend `.env` with the trusted private `LLM_BASE_URL`, `LLM_MODEL_ALIAS`, and `LLM_ENABLE_THINKING` values. The default network URL is `http://ddu-llm:8080`, alias `ddu-narrator`; only the backend worker needs that network. With both services running, use:
+For a real vLLM endpoint, start and validate [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE) using its own runbook. Configure the backend `.env` with the trusted private `LLM_BASE_URL`, `LLM_MODEL_ALIAS`, and `LLM_ENABLE_THINKING` values. The default network URL is `http://ddu-llm:8080`, alias `ddu-narrator`; only the backend worker calls that LLM endpoint. The API also joins the same private network for the separate `ddu-embed` RAG endpoint. With both services running, use:
 
 ```sh
 bash scripts/m1_smoke.sh
@@ -47,6 +47,12 @@ bash scripts/m1_smoke.sh
 This checks backend health, worker/model status, the existing history-specific structured Danish probe, and the M2 fake turn. The real model request is a diagnostic only; the M2 turn provider remains deterministic and fake.
 
 See the [backend runbook](docs/M1_RUNBOOK.md), [shared inference client contract](docs/SHARED_INFERENCE.md), and [M2 development guide](docs/M2_DEVELOPMENT.md). For the current inference deployment and synthetic two-workload tests, use the external [Local-AI-API-LITE repository](https://github.com/MarcusFunt/Local-AI-API-LITE).
+
+## Historical RAG (CASES B3)
+
+The additive session evidence endpoint returns only immutable passages that have a current approved review and approved rights status. The checked-in [Versailles 1919 corpus](scenarios/versailles-1919/rag/corpus.yaml) is staged and pending review; it returns `RAG_NO_EVIDENCE` until an operator approves passages. Source catalog URLs alone are not searchable evidence. Follow the [B3 RAG runbook](docs/B3_RAG_RUNBOOK.md) to validate, ingest, review, and query passages.
+
+The endpoint is `POST /api/v1/sessions/{session_id}/evidence/search` with the existing session bearer token and `{"query":"...","top_k":5}`. Actor, pinned scenario version, phase date, and the reflection postgame view come from persisted session/scenario data. Historical RAG does not participate in the M2 turn queue or dialogue provider.
 
 ## Development checks
 

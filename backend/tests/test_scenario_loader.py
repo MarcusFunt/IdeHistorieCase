@@ -64,6 +64,10 @@ rules: []
     )
     (tmp_path / "versailles" / "sources").mkdir()
     (tmp_path / "versailles" / "sources" / "catalog.yaml").write_text("sources: []\n", encoding="utf-8")
+    (tmp_path / "versailles" / "rag").mkdir()
+    (tmp_path / "versailles" / "rag" / "corpus.yaml").write_text(
+        "schema_version: 1\n", encoding="utf-8"
+    )
 
     results = validate_all(tmp_path)
 

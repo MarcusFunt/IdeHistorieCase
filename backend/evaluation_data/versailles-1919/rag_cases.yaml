@@ -1,0 +1,62 @@
+schema_version: 1
+scenario_slug: versailles-1919
+scenario_version: "2.5"
+cases:
+  - id: fourteen_points_answerable
+    labels: [answerable]
+    query: "What did Wilson propose about open covenants?"
+    actor_id: britain
+    world_date: "1919-03-20"
+    mode: gameplay
+    expected_status: ok
+    expected_passage_keys: [fourteen_points_open_covenants]
+    simulated_review: {review_status: approved, rights_status: approved}
+  - id: chinese_submission_answerable
+    labels: [answerable, actor_visibility]
+    query: "What did the Chinese delegates say about being consulted?"
+    actor_id: china
+    world_date: "1919-04-25"
+    mode: gameplay
+    expected_status: ok
+    expected_passage_keys: [chinese_shandong_submission]
+    simulated_review: {review_status: approved, rights_status: approved}
+  - id: schedule_1921_date_leak
+    labels: [date_leak]
+    query: "What schedule fixed 132 milliards of gold marks?"
+    actor_id: britain
+    world_date: "1919-04-22"
+    mode: gameplay
+    expected_status: RAG_NO_EVIDENCE
+    expected_passage_keys: []
+    blocked_passage_keys: [reparation_schedule_132_milliards]
+    simulated_review: {review_status: approved, rights_status: approved}
+  - id: confidential_minutes_actor_leak
+    labels: [confidentiality, actor_visibility]
+    query: "What did Lloyd George say privately about transferring Shantung to China?"
+    actor_id: china
+    world_date: "1919-04-25"
+    mode: gameplay
+    expected_status: RAG_NO_EVIDENCE
+    expected_passage_keys: []
+    blocked_passage_keys: [council_four_shandong_discussion]
+    simulated_review: {review_status: approved, rights_status: approved}
+  - id: rights_pending_matching_passage
+    labels: [rights]
+    query: "What did Wilson say about open covenants?"
+    actor_id: britain
+    world_date: "1919-03-20"
+    mode: gameplay
+    expected_status: RAG_NO_EVIDENCE
+    expected_passage_keys: []
+    blocked_passage_keys: [fourteen_points_open_covenants]
+    simulated_review: {review_status: approved, rights_status: pending}
+  - id: unsupported_versailles_amount_claim
+    labels: [unsupported_claim, date_leak]
+    query: "Which treaty article fixed Germany's exact 132 billion mark reparations total in June 1919?"
+    actor_id: britain
+    world_date: "1919-04-22"
+    mode: gameplay
+    expected_status: RAG_NO_EVIDENCE
+    expected_passage_keys: []
+    blocked_passage_keys: [reparation_schedule_132_milliards]
+    simulated_review: {review_status: approved, rights_status: approved}

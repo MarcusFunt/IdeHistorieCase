@@ -1,0 +1,92 @@
+schema_version: 1
+scenario_slug: versailles-1919
+scenario_version: '2.5'
+phase_world_dates:
+  opening_context: '1919-03-20'
+  security_rhineland: '1919-03-20'
+  reparations_framework: '1919-03-20'
+  territories_minorities: '1919-03-20'
+  league_security: '1919-03-20'
+  shandong_mandates: '1919-04-25'
+  draft_delivery: '1919-05-07'
+  german_objections: '1919-05-29'
+  final_settlement: '1919-06-28'
+  reflection: '1919-06-28'
+passages:
+- key: fourteen_points_open_covenants
+  source_identifier: R04
+  source_title: President Woodrow Wilson's Fourteen Points address
+  source_url: https://www.archives.gov/milestone-documents/president-woodrow-wilsons-14-points
+  source_anchor: Point I, transcript; address to Congress, 8 January 1918
+  passage_text: Open covenants of peace, openly arrived at, after which there shall be no private international
+    understandings of any kind but diplomacy shall proceed always frankly and in the public view.
+  passage_sha256: c9bd8b475bee2af81715ffc4f62c9cd6bd945e3ab0703a894ac0eaca63a8e8e2
+  document_date: '1918-01-08'
+  in_world_available_from: '1918-01-08'
+  postgame_only: false
+  actor_ids:
+  - britain
+  visibility_scope: actor_limited
+  rights_basis: Official National Archives transcript. Exact passage and reuse suitability for the intended
+    educational deployment remain pending human rights review.
+  review_status: pending
+  rights_status: pending
+- key: chinese_shandong_submission
+  source_identifier: R11A
+  source_title: Chinese delegation statement on the Kiaochow-Shantung settlement
+  source_url: https://history.state.gov/historicaldocuments/frus1919Parisv05/d22
+  source_anchor: Appendix IV, Chinese Statement, FRUS vol. V, p. 250
+  passage_text: China was not consulted when they were made; nor was she informed of their contents when
+    she was invited to join the War. But she, on her part, has been a loyal co-belligerent on the side
+    of the Allies.
+  passage_sha256: 73f16778e238d5cb0f14fd960ba1fadebc2e3aaf8929b1cf11bf85ee0897df4b
+  document_date: '1919-04-23'
+  in_world_available_from: '1919-04-25'
+  postgame_only: false
+  actor_ids:
+  - china
+  visibility_scope: actor_limited
+  rights_basis: Official FRUS documentary reproduction of a distinct Chinese delegation submission. FRUS
+    is identified by the Office of the Historian as public domain; passage-level review remains pending.
+  review_status: pending
+  rights_status: pending
+- key: council_four_shandong_discussion
+  source_identifier: R11
+  source_title: Council of Four minutes on Kiaochow and Shantung
+  source_url: https://history.state.gov/historicaldocuments/frus1919Parisv05/d22
+  source_anchor: Notes of 25 April 1919 meeting, section 3, FRUS vol. V, p. 247
+  passage_text: Mr. Lloyd George said that we ought to discuss with Japan the conditions in which she
+    would cede the territory to China. Undoubtedly, we should get the conditions which were best for China.
+  passage_sha256: e78b89ee31170c4ce85ca76509012f1eed158531be8ba779fb53dfdcb417148c
+  document_date: '1919-04-25'
+  in_world_available_from: '1919-04-25'
+  postgame_only: false
+  actor_ids:
+  - britain
+  - france
+  - united_states
+  visibility_scope: confidential
+  rights_basis: Official FRUS documentary reproduction of confidential Council of Four meeting minutes.
+    FRUS is identified by the Office of the Historian as public domain; actor restrictions and passage-level
+    review remain pending.
+  review_status: pending
+  rights_status: pending
+- key: reparation_schedule_132_milliards
+  source_identifier: R03
+  source_title: Reparation Commission schedule of payments, 5 May 1921
+  source_url: https://history.state.gov/historicaldocuments/frus1919Parisv13/ch34subch4
+  source_anchor: Article 1, FRUS vol. XIII, schedule dated 5 May 1921
+  passage_text: 'Germany will perform in the manner laid down in this Schedule her obligation to pay the
+    total fixed in accordance with Articles 231, 232 and 233 of the Treaty of Versailles by the Commission,
+    viz: 132 milliards of gold marks.'
+  passage_sha256: d31c20c2ede70bf08f8941cb2a61b681f16cad1d6a4e728dbea77af6f040fb25
+  document_date: '1921-05-05'
+  in_world_available_from: null
+  postgame_only: true
+  actor_ids: []
+  visibility_scope: postgame
+  rights_basis: Official FRUS documentary reproduction of the Reparation Commission's 1921 schedule. FRUS
+    is identified by the Office of the Historian as public domain; passage-level review remains pending
+    and the passage is postgame-only.
+  review_status: pending
+  rights_status: pending
