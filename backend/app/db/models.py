@@ -1,10 +1,12 @@
 """Persistent service status and M2 game state."""
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -140,3 +142,124 @@ class GameEvent(Base):
     event_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class RagScenarioPolicy(Base):
+    __tablename__ = "rag_scenario_policies"
+    __table_args__ = (
+        UniqueConstraint("scenario_version_id"),
+        CheckConstraint("corpus_sha256 ~ '^[0-9a-f]{64}$'"),
+        CheckConstraint("jsonb_typeof(phase_world_dates) = 'object'"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    scenario_version_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("scenario_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    scenario_slug: Mapped[str] = mapped_column(String(80), nullable=False)
+    scenario_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase_world_dates: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    corpus_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class HistoricalPassage(Base):
+    __tablename__ = "historical_passages"
+    __table_args__ = (
+        UniqueConstraint("scenario_version_id", "passage_key"),
+        CheckConstraint("length(passage_text) BETWEEN 1 AND 4000"),
+        CheckConstraint("passage_sha256 ~ '^[0-9a-f]{64}$'"),
+        CheckConstraint("corpus_sha256 ~ '^[0-9a-f]{64}$'"),
+        CheckConstraint("jsonb_typeof(actor_ids) = 'array'"),
+        CheckConstraint(
+            "(postgame_only AND in_world_available_from IS NULL) OR "
+            "(NOT postgame_only AND in_world_available_from IS NOT NULL)"
+        ),
+        CheckConstraint(
+            "visibility_scope IN ('public', 'actor_limited', 'confidential', 'postgame')"
+        ),
+        Index("ix_historical_passages_scenario_version", "scenario_version_id", "source_identifier"),
+        Index("ix_historical_passages_actor_ids", "actor_ids", postgresql_using="gin"),
+        Index(
+            "historical_passages_search_idx",
+            text("to_tsvector('simple'::regconfig, passage_text)"),
+            postgresql_using="gin",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    scenario_version_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("scenario_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    scenario_slug: Mapped[str] = mapped_column(String(80), nullable=False)
+    scenario_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    passage_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    source_identifier: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_title: Mapped[str] = mapped_column(String(240), nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_anchor: Mapped[str] = mapped_column(String(240), nullable=False)
+    rights_basis: Mapped[str] = mapped_column(Text, nullable=False)
+    passage_text: Mapped[str] = mapped_column(Text, nullable=False)
+    passage_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_date: Mapped[date] = mapped_column(Date, nullable=False)
+    in_world_available_from: Mapped[date | None] = mapped_column(Date)
+    postgame_only: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    actor_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+    visibility_scope: Mapped[str] = mapped_column(String(24), nullable=False)
+    corpus_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class HistoricalPassageReview(Base):
+    __tablename__ = "historical_passage_reviews"
+    __table_args__ = (
+        CheckConstraint("review_status IN ('approved', 'rejected', 'revoked')"),
+        CheckConstraint("rights_status IN ('approved', 'pending', 'denied', 'restricted')"),
+        CheckConstraint("revision >= 1"),
+        UniqueConstraint("passage_id", "revision"),
+        Index("ix_historical_passage_reviews_latest", "passage_id", "revision"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    passage_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("historical_passages.id", ondelete="RESTRICT"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    review_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    rights_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(128), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class HistoricalPassageEmbedding(Base):
+    __tablename__ = "historical_passage_embeddings"
+    __table_args__ = (
+        UniqueConstraint("passage_id", "passage_sha256", "model_id"),
+        CheckConstraint("passage_sha256 ~ '^[0-9a-f]{64}$'"),
+        CheckConstraint("model_id <> ''"),
+        Index(
+            "historical_embeddings_hnsw_idx",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"m": 16, "ef_construction": 64},
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    passage_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("historical_passages.id", ondelete="RESTRICT"), nullable=False
+    )
+    passage_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

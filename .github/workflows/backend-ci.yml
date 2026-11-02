@@ -47,6 +47,10 @@ jobs:
         run: uv run --locked --project backend python -m app.scenarios.cli validate-all scenarios
       - name: Verify authored scenario bundle pins
         run: uv run --locked --project backend python -m app.scenarios.cli verify-bundle-pins scenarios
+      - name: Validate historical RAG corpus and evaluation labels
+        run: |
+          uv run --locked --project backend python -m app.rag.cli validate scenarios/versailles-1919/rag/corpus.yaml
+          uv run --locked --project backend python -m app.rag.cli validate-eval backend/evaluation_data/versailles-1919/rag_cases.yaml
       - name: Ruff
         run: |
           uv run --locked --project backend ruff check backend
@@ -68,6 +72,10 @@ jobs:
           uv run --locked --project . pytest -q tests/test_scenario_repository.py
           uv run --locked --project . pytest -q tests/test_scenario_cli_db.py
           uv run --locked --project . pytest -q tests/test_scenario_api.py
+          uv run --locked --project . pytest -q tests/test_rag_migration.py
+          uv run --locked --project . pytest -q tests/test_rag_workflow.py
+          uv run --locked --project . pytest -q tests/test_rag_postgres_integration.py
+          uv run --locked --project . pytest -q tests/test_rag_api.py
       - name: Validate backend Compose project
         run: |
           cp deployment/backend/.env.example deployment/backend/.env

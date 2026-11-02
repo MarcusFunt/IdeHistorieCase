@@ -20,6 +20,20 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(default="http://ddu-llm:8080", min_length=1, max_length=2048)
     llm_model_alias: str = Field(default="ddu-narrator", min_length=1, max_length=128)
     llm_enable_thinking: bool | None = None
+    rag_embed_base_url: str = Field(default="http://ddu-embed:8080", min_length=1, max_length=2048)
+    rag_embed_model_id: str = Field(default="Qwen/Qwen3-Embedding-0.6B", min_length=1, max_length=160)
+    rag_embed_timeout_seconds: float = Field(default=15.0, ge=0.1, le=120.0)
+    rag_rerank_enabled: bool = False
+    rag_rerank_base_url: str | None = Field(default=None, max_length=2048)
+    rag_rerank_model_id: str = Field(
+        default="Alibaba-NLP/gte-multilingual-reranker-base", min_length=1, max_length=160
+    )
+    rag_rerank_timeout_seconds: float = Field(default=20.0, ge=0.1, le=120.0)
+    rag_candidate_limit: int = Field(default=20, ge=2, le=100)
+    rag_rrf_k: int = Field(default=60, ge=1, le=1000)
+    rag_min_lexical_score: float = Field(default=0.03, ge=0.0, le=1.0)
+    rag_min_dense_similarity: float = Field(default=0.60, ge=-1.0, le=1.0)
+    rag_min_rerank_score: float = Field(default=0.20, ge=0.0, le=1.0)
     worker_poll_seconds: float = Field(default=10.0, ge=1.0, le=600.0)
     worker_stale_seconds: int = Field(default=45, ge=2, le=3600)
 
@@ -46,6 +60,47 @@ class Settings(BaseSettings):
             raise ValueError("llm_model_alias must not be empty")
         return value
 
+    @field_validator("rag_embed_base_url")
+    @classmethod
+    def validate_rag_embed_base_url(cls, value: str) -> str:
+        return cls._validated_service_url(value, "rag_embed_base_url")
+
+    @field_validator("rag_rerank_base_url", mode="before")
+    @classmethod
+    def empty_rerank_url_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("rag_rerank_base_url")
+    @classmethod
+    def validate_rag_rerank_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return cls._validated_service_url(value, "rag_rerank_base_url")
+
+    @field_validator("rag_embed_model_id", "rag_rerank_model_id")
+    @classmethod
+    def validate_rag_model_ids(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("RAG model ID must not be empty")
+        return value
+
+    @staticmethod
+    def _validated_service_url(value: str, field_name: str) -> str:
+        value = value.strip()
+        try:
+            parsed = urlsplit(value)
+            parsed.port
+        except ValueError as error:
+            raise ValueError(f"{field_name} must be a valid HTTP(S) URL") from error
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError(f"{field_name} must use HTTP or HTTPS and include a host")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError(f"{field_name} must not include credentials")
+        return value.rstrip("/")
+
     @field_validator("llm_enable_thinking", mode="before")
     @classmethod
     def empty_thinking_setting_is_unset(cls, value):
@@ -60,6 +115,12 @@ class Settings(BaseSettings):
                 "worker_stale_seconds must exceed worker_poll_seconds plus the "
                 "4-second health-check timeout; allow extra time for database writes"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_rag_services(self) -> Self:
+        if self.rag_rerank_enabled and self.rag_rerank_base_url is None:
+            raise ValueError("rag_rerank_base_url is required when rag_rerank_enabled is true")
         return self
 
     @property
