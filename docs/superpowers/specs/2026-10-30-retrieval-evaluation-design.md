@@ -1,128 +1,117 @@
-# Retrieval evaluation design
+# Historical retrieval evaluation design
 
-**Status:** Draft pending approval<br>
+**Status:** Approved, revised 2026-10-30<br>
 **Date:** 2026-10-30<br>
-**Repositories:** `IdeHistorieCase` (evaluation) and `Local-AI-API-LITE` (model services)
+**Primary repository:** IdeHistorieCase<br>
+**Retrieval service dependency:** Local-AI-API-LITE
 
 ## Intent
 
-Measure whether historical source retrieval and reranking improve answer quality enough to justify their CPU, memory, and latency cost. Run the same source passages, queries, answer model, and prompt across four retrieval configurations, then compare those answers with oracle-evidence and no-context conditions.
-
-`IdeHistorieCase` currently has an M2 fake turn provider, a narrow inference probe, and 12 Versailles answer goldens. It has no source-passage store, production retriever, or reranker. `Local-AI-API-LITE` currently serves the chat model only. The evaluation will be an offline benchmark over a versioned source corpus, backed by actual embedding/reranking model services added to the LITE repository. It will not claim to measure the fake turn worker.
+Measure whether the historical retrieval configurations improve evidence discovery enough to justify their CPU, memory, and latency cost. Stage 1 evaluates retrieval only over versioned, real source passages. A later, smaller human study measures answer quality without making generation a gate for retrieval-harness acceptance.
 
 ## Goals
 
-- Add a local evaluation runner and source-grounded answer path in IdeHistorieCase.
-- Add CPU-only embedding and reranking services in Local-AI-API-LITE, with real adapters required for acceptance.
-- Compare BM25, Qwen embeddings, BM25 + Qwen hybrid retrieval, and hybrid + GTE reranking.
-- Use 40 reviewed pilot queries followed by at least 100 held-out Danish/English queries with actual source passages.
-- Measure Recall@5, MRR@10, nDCG@10, multi-passage evidence coverage, and paired reranking deltas.
-- Make blind human ratings the primary answer-quality and unsupported-claim measure; use an AI judge only as an optional secondary diagnostic.
-- Add an oracle-evidence condition to separate retrieval errors from generation errors.
-- Separate warm/cold and local/remote timing and resource measurements.
+- Add a local evaluation harness and a versioned Versailles source-passage corpus under backend/evaluation_data/versailles-1919/, outside the published scenario bundle.
+- Compare BM25, exact dense Qwen retrieval, BM25 plus Qwen reciprocal-rank fusion, and hybrid retrieval reranked by GTE.
+- Target a 40-query bilingual pilot and a 100-query held-out evaluation. Compute quality metrics on a reviewed query sample and report its coverage; exhaustive human review is not required. Human and high-capability agent reviews are both valid label provenance. Pool top results from every retrieval method for the sampled queries.
+- Measure Recall@5, MRR@10, nDCG@10, evidence coverage@5/@10, paired reranking changes, latency, CPU, and memory.
+- Implement real-model clients for the existing Local-AI-API-LITE workers and verify service health, readiness, identity, and pinned model revisions before a real-model run.
+- Keep answer-quality evaluation as a separate study over a stratified 25–40 held-out questions whose oracle evidence has been reviewed; other held-out questions and sources do not require review.
 
 ## Non-goals
 
-- Change the production turn worker, scenario publication, database schema, or public API.
-- Change the GPU vLLM model, its profile, GPU allocation, stable `ddu-llm` alias, or current dashboard controls.
-- Mark source passages or in-game citations as ready for product use.
-- Count mocks, canned vectors, stub rerankers, or model-ID-only checks as real-model acceptance.
-- Run the live evaluation or start/stop the existing vLLM service during implementation.
+- Add, replace, or reconfigure retrieval services in Local-AI-API-LITE. Its existing CPU Qwen and GTE services remain the model runtime for this milestone.
+- Introduce Text Embeddings Inference (TEI) or another model-serving engine in the implementation. TEI and alternative engines may be compared later as optional performance experiments.
+- Change the production turn worker, scenario publication, database schema, public API, product source catalog, or citation readiness.
+- Require an answer generator, AI judge, or answer-quality ratings for Stage 1 retrieval acceptance.
+- Start, stop, or restart inference services from the evaluation runner.
 
-## Current constraints and technical basis
+## Existing model-service interface
 
-- `IMPLEMENTATION_PLAN.md` calls for 30–50 labeled Danish/English questions, Recall@5, MRR, CPU latency, startup time, and RAM. The first 40 are a pilot; final comparisons use a separately authored held-out split of at least 100 cases.
-- The current Versailles source policy remains `citation_ready: false`. Evaluation passages live outside the scenario bundle. FRUS is identified by the U.S. Office of the Historian as public domain and reusable; the fixture will retain source attribution, links, dates, and exact section/page anchors, and exclude later editorial notes unless a case tests them. The product source policy remains unchanged. See the [FRUS reuse FAQ](https://history.state.gov/about/faq/what-is-frus).
-- Local-AI-API-LITE's main `compose.yaml` is deliberately constrained to one vLLM service. Its dashboard validator also allowlists that service and its fixed commands. Retrieval services therefore use a second optional Compose project in the same repository rather than broadening dashboard lifecycle controls.
-- Hugging Face Text Embeddings Inference (TEI) documents CPU images and support for both Qwen3 embeddings and the GTE multilingual reranker; it exposes embedding/reranking APIs and Prometheus metrics. The design uses pinned TEI images and immutable model revisions. See [TEI supported models and CPU images](https://huggingface.co/docs/text-embeddings-inference/en/supported_models), [TEI reranking API](https://huggingface.co/docs/text-embeddings-inference/quick_tour), and [TEI CLI options](https://huggingface.co/docs/text-embeddings-inference/cli_arguments).
-- Qwen3-Embedding recommends an instruction-prefixed query and unprefixed documents. The exact historical-retrieval instruction and model revision are pinned in the evaluation manifest. See [Qwen3-Embedding model card](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B).
-- Pilot cases may be used for adapter and rubric development. Held-out query labels, prompt, top-k, and model revisions are frozen before comparison and are not used to tune candidate configurations.
+Local-AI-API-LITE main commit 87f610041736dc5012f85238c724ed53816e4604 already contains the CPU-only workers in deploy/retrieval/compose.yaml, on the private ddu_inference_bus network with aliases ddu-embed and ddu-rerank. Preserve that deployment and its service lifecycle.
 
-## Approaches
+The evaluation clients use these worker contracts:
 
-1. **Add all retrieval containers to the current LITE Compose project and dashboard allowlist.** Rejected: the dashboard validates a single vLLM service and fixed GPU controls. Widening that boundary would couple retrieval service lifecycle to the GPU model controls.
-2. **Add an optional CPU-only retrieval Compose project in the LITE repository, and keep evaluation in IdeHistorieCase.** Selected: it preserves LITE ownership, keeps the GPU chat service unchanged, provides real local model endpoints, and lets the evaluation consume them over the existing private Docker network.
-3. **Use arbitrary external model services without extending LITE.** Rejected by the user: real Qwen and GTE services must be part of LITE and working adapters are required for acceptance.
+- Before a run, GET /health and GET /ready must both return 200. GET /v1/models must return the expected alias, task, and pinned model revision. Fail closed on a missing service, loading worker, unexpected identity or revision, malformed response, non-finite value, or a dimension mismatch.
+- Qwen: POST http://ddu-embed:8080/v1/embeddings with model ddu-embed, input_type query or document, and encoding_format float. Query instructions are applied by the worker; documents are unprefixed. Batch no more than eight strings. Verify ordered results, 1,024 finite dimensions, and normalized vectors. Pin model Qwen/Qwen3-Embedding-0.6B at revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3 and record query instruction version qwen3-question-to-passages-en-v1.
+- GTE: POST http://ddu-rerank:8080/v1/rerank with model ddu-rerank, query, up to 20 documents, and top_n when needed. Validate returned original indexes and finite scores. Pin Alibaba-NLP/gte-multilingual-reranker-base at revision 8215cf04918ba6f7b6a62bb44238ce2953d8831c; record reviewed custom-code revision 40ced75c3017eb27626c9d4ea981bde21a2662f4 with the worker source/image identity.
+- The existing worker API does not expose a TEI /metrics endpoint. Record endpoint wall time and response token usage; the host-side sampler records Docker CPU and memory. Missing worker-side timing or remote-host samples are marked unavailable, never reported as zero.
 
-## LITE model-service design
+## Evaluation data and temporal access
 
-Add `compose.retrieval.yaml` in Local-AI-API-LITE as a separate project named `local-ai-api-lite-retrieval`. It contains two CPU-only TEI containers:
+Keep evaluation data separate from scenarios and runtime state. Store a manifest, sources, exact passage excerpts, queries, and graded judgments as separate files. Each passage has a stable ID, exact text and SHA-256, source URL/title/institution, source document creation date, publication date, text anchor/page, and an actor-knowledge availability rule. Retain attribution and access dates. The source policy remains citation_ready: false.
 
-- `embed`: `Qwen/Qwen3-Embedding-0.6B`, pinned model revision and pinned TEI CPU image digest; serves `/embed`.
-- `rerank`: `Alibaba-NLP/gte-multilingual-reranker-base`, pinned model revision and pinned TEI CPU image digest; serves `/rerank`.
+Queries identify language, topic, question kind, answerability, and any actor and as-of time. Distinguish retrospective historical QA from actor/time-restricted simulation. Store document creation, publication, and actor knowledge availability as separate fields. Retrospective QA can retrieve historical records without pretending an actor in 1919 knew later events. Simulation retrieval filters passages by the specified actor's knowledge availability at the query time.
 
-Both services join the external `ddu_inference_bus` network with stable internal aliases `ddu-embed` and `ddu-rerank`. They have no published host ports and receive no GPU reservation. They use the persistent Hugging Face cache outside the repository. CPU, memory, tokenizer worker, batch, and concurrency limits are explicit environment settings and appear in every evaluation record. The existing vLLM `compose.yaml`, `.env` model profile, dashboard service allowlist, and GPU controls remain unchanged.
+The initial data status is draft. A manifest records target and actual counts, optional source/query review state, judgment coverage, and hashes. Retrieval-run completeness depends on dataset validity and trace coverage, not review coverage. Quality reports use fully judged reviewed queries, identify whether labels were reviewed by a person, an agent, or both, and show the reviewed sample size. Missing judgments are not treated as zero. A full held-out retrieval run can be reported with a sampled quality result.
 
-Document a dedicated startup/stop/health/metrics runbook for the retrieval project. Its lifecycle is operated separately from the vLLM project and dashboard. The evaluation runner checks TEI `/health` and `/info`, compares the reported model ID and `model_sha` with configuration when `model_sha` is present, calls each actual model endpoint with a real input, validates finite embeddings and rerank scores, and fails on an unexpected identity. If TEI omits `model_sha`, the host wrapper must inspect the running container and verify the pinned image digest, exact model ID, and immutable `--revision` commit passed to the process; it records that evidence with the run. The evaluator's LITE clients use TEI's `/embed`, `/rerank`, `/info`, and `/metrics` contracts; they do not substitute local stubs.
+Judgments use a 0–3 relevance scale plus one or more required evidence groups. A query can have multiple relevant passages, and each evidence group can name alternate passages that support the same required fact. Keep labels separate from query and corpus content.
 
-## Evaluation data and retrieval configurations
+For pooling, combine the top ten unique passages per selected query from BM25, dense, hybrid, and reranked results. Export passages with randomized IDs and profile/rank provenance withheld from the reviewer or review agent. Import grades and evidence-group links through a validated format and store review method and reviewer identity. A high-capability review agent may use the source URL and other authoritative internet sources to validate labels. Unjudged queries are excluded from graded aggregates, not from retrieval results; report the labeled sample size, query/pool coverage, and provenance.
 
-In IdeHistorieCase, store data under `backend/evaluation_data/versailles-1919/`, outside the published scenario bundle. Use separate pilot, held-out, passage, and relevance-label files plus a manifest. The manifest pins schema and split versions, topic groups, languages, source URLs, exact passage text and hashes, source dates, page/section anchors, temporal availability, graded relevance, required evidence groups, answer criteria, and abstention expectations.
+## Retrieval configurations
 
-- **Pilot:** 40 Danish/English questions seeded by the existing 12 goldens. Use it for adapter, retrieval, prompt, and rubric development.
-- **Held-out:** at least 100 separately authored questions, balanced across Danish and English. Freeze it before final configuration; report it separately from pilot data.
-- Every answerable case has exact, source-checked passages and graded relevance labels. Unanswerable cases expect abstention. Multi-fact questions identify distinct required evidence groups; each group may list alternate passages that support the same fact.
-- Questions, passages, relevance labels, answer criteria, and temporal access rules remain separate from what the retrieval adapter receives. Dataset status is `draft` until a human checks the passages and labels; draft results are clearly provisional.
+Run the same query set, corpus, temporal filter, and top-k settings through:
 
-Run the same corpus and query through four configurations:
+1. BM25: deterministic tokenization, term-frequency/inverse-document-frequency implementation, and parameters pinned in the manifest.
+2. Dense Qwen: exact cosine ranking over normalized real Qwen vectors. Measure corpus embedding/index construction separately from per-query query embedding and ranking.
+3. Hybrid: reciprocal-rank fusion of BM25 and dense rankings with fixed, recorded parameters.
+4. Hybrid + GTE: send the fixed hybrid candidate pool to the real GTE worker. Preserve the pre-rerank candidates and final ranking.
 
-1. **BM25:** deterministic lexical baseline with tokenizer and parameters pinned in the manifest.
-2. **Qwen embeddings:** embed the corpus with the real Qwen TEI service, embed each instructed query, and rank the full corpus by exact cosine similarity. Measure one-time corpus embedding/index construction separately from per-query latency.
-3. **Hybrid:** fuse BM25 and Qwen rankings with pinned reciprocal-rank fusion parameters.
-4. **Hybrid + GTE:** send the fixed top candidate pool from hybrid retrieval to the real GTE TEI `/rerank` endpoint; preserve both the pre-rerank and final ranking.
+All rankings carry passage ID, rank, retrieval profile, component scores where applicable, and returned source text. Apply temporal filters before ranking. Never substitute mock vectors or a local fake reranker in real-model comparison mode.
 
-The evaluation implementation contains the BM25, exact-cosine, and fusion logic. Qwen embedding and GTE reranking are mandatory real LITE services for final acceptance. All configs run through the same passage filters and return exact passage IDs, ranks, and scores. Unknown passages, forbidden temporal access, malformed model responses, or citations outside the supplied passages fail closed.
+## Stage 1: retrieval-only study
 
-## Answer conditions and human evaluation
+Stage 1 does not call a text-generation model. It produces per-query retrieval traces and aggregate retrieval reports. Metrics are:
 
-For every held-out case and retrieval configuration, use the same answer model (`ddu-narrator` by default), fixed prompt, decoding settings, language, role, date, and access filters. Pass the exact ranked passages from that configuration to the generator. Add two controls:
+- Recall@5 over judged relevant passages.
+- MRR@10 over judged relevant passages.
+- Graded nDCG@10 with relevance grades 0–3.
+- Required evidence group coverage@5 and @10.
+- Paired pre/post GTE deltas for Recall@5, MRR@10, nDCG@10, and coverage, with per-query rank movement.
+- Warm and cold client latency for embedding, lexical/dense/hybrid computation, reranking, and total retrieval; report p50/p95 and corpus-index construction separately.
+- CPU and peak/mean RSS by worker and configuration from Docker sampling, with host, interval, limits, and missing telemetry recorded.
 
-- **Oracle evidence:** pass all gold evidence groups directly and bypass retrieval. This estimates answer quality when evidence retrieval is correct.
-- **No-context ablation:** provide no source passages to measure model-only answer quality and the effect of adding evidence.
+Report pilot and held-out separately, by language, topic, and query kind. Provide paired held-out deltas and bootstrap confidence intervals over the reviewed query sample, alongside sample size and coverage. Put quality and resource measurements side by side; do not collapse them into a single score. A run with no reviewed labels can still be retrieval-complete, with quality metrics marked unavailable.
 
-Human evaluation is primary. Export answers with randomized labels that hide retrieval profile, while showing the question criteria, cited IDs, and exact passages supplied to the model. Reviewers score factual correctness, required-point coverage, relevance, temporal consistency, and use of evidence on a fixed rubric. They label each factual claim as supported, contradicted, or unsupported by the passages and record the evidence reference. One reviewer rates all held-out answers; a second reviewer independently rates a randomized 20% sample, and disagreements are flagged for adjudication. A schema-validated ratings file is required before the report emits final human answer-quality and unsupported-claim aggregates.
+## Resource and run protocol
 
-An AI judge is optional and secondary. It may be compared with human ratings but cannot replace missing ratings or determine acceptance. Report unsupported-by-retrieved-evidence and contradicted-by-evidence separately, including unsupported claims per 100 factual claims and the share of answers with at least one unsupported claim.
+The evaluator runs as a short-lived, resource-limited client on ddu_inference_bus. It reads evaluation data read-only and writes to an ignored local results directory. It receives no PostgreSQL connection, Docker socket, or production API port. A fixed host-side PowerShell wrapper samples only the two named retrieval containers using Docker stats and writes timestamped JSONL resource samples. The service workers and evaluation client remain separate.
 
-## Metrics and run protocol
+Measure local orchestration and model-service request latency separately. The worker API reports token usage but no per-request server duration, so endpoint wall time is the worker-side proxy available to the client. For remote workers, report client network-plus-queue latency separately; CPU and RSS are complete only when the worker host sampler is collected.
 
-For each query and retrieval configuration, calculate:
+Cold-start measurement is operator-managed: the operator starts the retrieval workers from a stopped state with model weights already cached, and the wrapper records container start, readiness, and first request timestamps. The evaluator never starts or stops a service. Cold means process/model load, not model download. Warm measurements follow a fixed warm-up count. Do not mix local and remote, cold and warm, or different worker revisions in one comparison.
 
-- **Recall@5:** fraction of labeled relevant passage IDs present in the top five.
-- **MRR@10:** reciprocal rank of the first relevant passage through rank ten, macro-averaged by query.
-- **nDCG@10:** graded ranking quality using the labels in the dataset.
-- **Evidence coverage@5 and @10:** fraction of required evidence groups represented in the corresponding top-k results.
-- **Reranking improvement:** paired pre/post GTE deltas in Recall@5, MRR@10, nDCG@10, and evidence coverage, plus per-query rank movement and added CPU/RSS/latency.
-- **Human answer quality:** every rubric dimension and the unweighted mean for retrieved, oracle, and no-context conditions, with confidence intervals and reviewer agreement.
-- **Unsupported historical claims:** human-labeled unsupported and contradicted claims per 100 factual claims, and share of answers with at least one unsupported claim, reported for each condition.
+## Stage 2: answer-quality study
 
-Measure performance separately by execution location and cache state:
+Once the 100-query held-out set and retrieval traces exist, sample 25–40 held-out questions stratified by language, topic, answerability, and question kind from queries with reviewed oracle-evidence labels. Only this selected sample needs graded evidence review; source review and judgments for the remaining held-out queries are optional. Compare retrieved-evidence answers with an oracle-evidence control using the same answer model, prompt, maximum passage count, evidence-token budget, and citation format. Oracle selection fills the same evidence budget with the highest-graded reviewed evidence passages; retrieval conditions fill it from each profile's ranking. A no-context condition may be included as a separate diagnostic with its own evidence-support interpretation.
 
-- **Local orchestration:** wall time and CPU for BM25, exact search, fusion, serialization, and evaluation client work.
-- **Model worker:** client wall time to Qwen/GTE, server time/queue metrics where TEI exposes them, and worker CPU/RSS. Scrape TEI `/metrics`; the host runner also samples the two fixed retrieval containers with Docker stats so CPU/memory remain measurable if a process metric is unavailable. Record the source and sampling interval.
-- **Cold:** the operator starts a dedicated retrieval project from a stopped state with model files already in the persistent cache. The host wrapper records service start; the evaluator records health/readiness and first-request times. This is a cold process/model load, not a cold download. The evaluator never starts, stops, or restarts services, vLLM, or the backend.
-- **Warm:** after a fixed warmup count, report p50/p95 latency and CPU/RSS per query for embedding, retrieval, reranking, answer generation, and end-to-end.
-- **Remote worker mode:** retain client network+queue latency separately from server timing. Obtain worker CPU/RSS from the worker host sampler or its Prometheus `/metrics` endpoint; missing worker CPU/RSS makes the resource comparison incomplete, not zero. Record the source and sampling interval.
+Blind profile labels and randomize answer order. For generated-answer quality, blind human ratings remain primary on the selected 25–40 answer sample; this does not require every held-out query or source to be human-reviewed. Score separately:
 
-Run each configuration as a separate labeled phase so service CPU deltas and peak memory can be attributed to that configuration. Record hardware, container/model revisions, CPU/memory limits, batch size, concurrency, tokenization workers, model cache state, corpus and query-set hashes, prompt versions, and timestamps. Report paired held-out deltas grouped by topic with bootstrap confidence intervals. Put quality and resource changes side by side rather than reducing them to one winner score.
+- Historical factual accuracy, independent of the evidence supplied.
+- Support or contradiction by the supplied evidence.
+- Citation correctness: cited passage exists, was supplied, and supports the attached claim.
+- Required-point coverage, relevance, and temporal consistency.
 
-## Runner and artifacts
+For every factual claim, record factual status, evidence-support status, and citation status as separate fields. A no-context claim can be factually correct while unsupported by the provided evidence; do not automatically count it as factually false. Report unsupported and contradicted claims separately. AI judging is optional and secondary.
 
-The evaluation is an explicit CLI in IdeHistorieCase. Run it in a short-lived, resource-limited client container attached to `ddu_inference_bus`, with read-only access to benchmark data and a private writable results directory. The evaluator receives no PostgreSQL connection, Docker socket, or production API port. A fixed host-side wrapper gathers Docker stats and combines them with the run artifact; the dashboard does not add arbitrary or free-form benchmark jobs.
+Retrospective QA and actor/time-restricted simulation are separate strata. For simulation, reviewers see the actor, time, and allowed knowledge set and score whether the answer leaks later information. The answer study does not change Stage 1 acceptance.
 
-Write query-level JSONL traces, blinded review files, a ratings import file, and Markdown/JSON summaries to a caller-selected local directory ignored by Git. Traces include the exact retrieved passages, answers, rankings, model revisions, and run configuration. Runs compare only when corpus, held-out split, model/container revisions, prompt, and runtime configuration match.
+## Artifacts and comparison identity
 
-## Acceptance
+The CLI writes query-level JSONL traces with exact retrieved passages, scores, ranks, timing, query/corpus hashes, worker identity, model revisions, and runtime configuration. It exports pooled judgments, blinded answer packets, validated human-rating imports, and Markdown/JSON summaries. Results go under a caller-selected ignored directory.
 
-Acceptance requires all of the following:
+Runs are comparable only when corpus and split hashes, judgment file, retrieval parameters, prompt/model settings if applicable, worker revisions, limits, execution location, and cache state match. Reports identify judgment provenance and sample coverage and never treat missing labels or metrics as zero. Review coverage is descriptive and does not block retrieval-run completeness.
 
-- 40 pilot cases and at least 100 bilingual held-out cases validate. Held-out source excerpts, relevance grades, evidence groups, and temporal rules receive independent human review; the dataset is not labeled approved before that review.
-- The LITE retrieval Compose project starts both actual TEI models on CPU, without host-published ports or GPU access. The Qwen adapter performs real `/embed` calls; the GTE adapter performs real `/rerank` calls; both verify model identity and validate returned values. Verify revisions from TEI `model_sha` when supplied; otherwise require host-side container evidence of the pinned image and immutable model revision. No mock or stub result can satisfy this requirement.
-- BM25, Qwen, hybrid, and hybrid + GTE all produce ranking traces on the same held-out cases. Oracle and no-context conditions use the same answer model and frozen prompt.
-- Human ratings are loaded for every held-out output; second-review agreement and adjudication are recorded. AI-judge scores alone cannot pass acceptance.
-- Recall@5, MRR@10, nDCG@10, evidence coverage, unsupported-claim rates, and reranking deltas are reported by language and condition.
-- Cold/warm and local/remote latency and resource measurements are separated. Missing service metrics, human ratings, adapters, or a human-reviewed dataset are clearly marked incomplete.
+## Acceptance stages
 
-## Builder decisions
+1. Retrieval harness: dataset and manifest validation, deterministic BM25, trace format, retrieval metrics, pooling export/import, and report generation. No generator or live model service is required for this stage.
+2. Real-model retrieval comparison: actual Qwen and GTE calls through the existing LITE endpoints; health/readiness/model identity and pinned model revisions verified; all four retrieval profiles produce traces; reviewed-sample quality, latency, and Docker resource costs reported. Review coverage is shown but does not gate trace acceptance.
+3. Answer-quality study: optional follow-on acceptance using 25–40 stratified held-out cases with reviewed oracle evidence and blind human answer ratings. Exhaustive review of the 100-query set or the full source corpus is not required.
+4. Optional optimization: TEI or other engines may be tested as separate A/B experiments with identical corpus, queries, and resource controls. They are not part of this implementation milestone.
 
-The builder may choose exact JSON/YAML schemas, CLI flags, percentile and bootstrap implementation, module names, output layout, TEI image digest, immutable model commits, CPU/memory defaults, and the host-side metrics wrapper. Keep the retrieval Compose project separate from the vLLM dashboard-controlled project. Keep the evaluation outside the production turn worker and scenario version hash. Do not add excerpts to the product source catalog or change game citation readiness. The four configurations, real Qwen/GTE adapters, pilot/held-out split, human-primary scoring, oracle condition, and cold/warm/local/remote measurements are fixed requirements.
+## Source and repository boundaries
+
+Existing 12 Versailles answer goldens seed the pilot design but are not retrieval judgments by themselves. Use exact, source-checked passages from authoritative source documents and record source anchors; do not copy unreviewed R13/R14 material or later FRUS editorial notes as treaty text. FRUS source text is identified by the U.S. Office of the Historian as public domain and reusable; product source policy remains unchanged. See the FRUS reuse FAQ: https://history.state.gov/about/faq/what-is-frus.
+
+Keep implementation in backend/app/evaluation and backend/evaluation_data/versailles-1919/. Do not alter the production turn worker, game prompt, scenario version hash, source catalog, or Local-AI-API-LITE worker runtime in this milestone.

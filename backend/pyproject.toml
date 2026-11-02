@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 scenario = "app.scenarios.cli:main"
 rag = "app.rag.cli:main"
+historical-eval = "app.evaluation.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -31,7 +32,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app", "app.ai", "app.core", "app.db", "app.game", "app.rag", "app.scenarios", "app.workers"]
+packages = ["app", "app.ai", "app.core", "app.db", "app.game", "app.rag", "app.evaluation", "app.scenarios", "app.workers"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
