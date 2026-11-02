@@ -14,7 +14,7 @@ YAML formatting, source-file path, and mapping-key order do not affect the hash.
 
 After import, authored content, its hash, and the derived initial state are immutable. To change a published scenario, author a new content version. Activation is a separate explicit operation; old sessions keep their original version.
 
-The definition hash covers only the B1 manifest. A separate byte-exact bundle hash covers the manifest, its version-matched sibling YAML sidecars, and YAML files under sources/. The bundle hash is stored with an imported version and protected by the same database immutability guard. Validated behavior and evidence-policy sidecars are also stored as private JSONB snapshots for later runtime use; the public API does not return them. Reimporting the same slug/version after any bundled file changes is rejected. The checked-in 2.5_bundle.sha256 pins the current Versailles package; it does not include itself.
+The definition hash covers only the B1 manifest. A separate byte-exact bundle hash covers the manifest, its version-matched sibling YAML sidecars, and YAML files under sources/. The bundle hash is stored with an imported version and protected by the same database immutability guard. Validated behavior and evidence-policy sidecars are also stored as private JSONB snapshots for later runtime use; the public API does not return them. Reimporting the same slug/version after any bundled file changes is rejected. A bundle hash file does not include itself.
 
 
 ## API and publication
@@ -26,14 +26,14 @@ The definition hash covers only the B1 manifest. A separate byte-exact bundle ha
 
 Publish using the developer CLI from the repository root:
 
-    uv run --project backend python -m app.scenarios.cli import scenarios/versailles-1919/2.5.yaml
-    uv run --project backend python -m app.scenarios.cli activate versailles-1919 --version 2.5
+    uv run --project backend python -m app.scenarios.cli import path/to/scenario.yaml
+    uv run --project backend python -m app.scenarios.cli activate <slug> --version <version>
     uv run --project backend python -m app.scenarios.cli list
-    uv run --project backend python -m app.scenarios.cli show versailles-1919 --version 2.5
+    uv run --project backend python -m app.scenarios.cli show <slug> --version <version>
 
 Import creates an inactive version. Activation is explicit. For a read-only import check, add --dry-run.
 
 
 ## Deterministic runtime effects
 
-The fake provider boundary accepts typed candidate events. The application validates metric permissions and ranges, flag targets, phase transitions, and issue decisions against the stored manifest and behavior snapshot before committing them. One turn may commit multiple ordered events; existing v1 turns still commit one player-argument event. The Versailles reaction policy maps decision order to authored objection codes only as an illustrative qualitative game mechanic. It does not claim that the paired concern was a documented response by a historical delegation.
+The fake provider boundary accepts typed candidate events. The application validates metric permissions and ranges, flag targets, phase transitions, and issue decisions against the stored manifest and behavior snapshot before committing them. One turn may commit multiple ordered events; existing v1 turns still commit one player-argument event. Scenario-specific reaction policies map decision order to authored objection codes as qualitative game mechanics, not as claims about documented historical responses.

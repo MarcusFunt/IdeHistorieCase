@@ -2,6 +2,8 @@
 
 This file records checks that ran in this checkout. It separates completed B1 work, the deterministic B2 slice now exercised, and later research/runtime gates.
 
+The Versailles scenario package described here has since been removed from the source tree. This document is a historical validation record.
+
 ## Authored content
 
 - scenarios/versailles-1919/2.5.yaml: schema version 1, ten reachable phases, twelve dilemmas, ten historical/affected actor entries, and one explicitly fictional playable British adviser.

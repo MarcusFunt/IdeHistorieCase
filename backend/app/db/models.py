@@ -140,3 +140,7 @@ class GameEvent(Base):
     event_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+# Register the independent history schema with Alembic's shared metadata.
+import app.history.models  # noqa: E402,F401

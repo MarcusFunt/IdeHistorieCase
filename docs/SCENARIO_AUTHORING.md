@@ -7,7 +7,7 @@ A scenario manifest is one immutable authored release. Put each manifest under s
 From the repository root:
 
     uv sync --project backend --extra dev
-    uv run --project backend python -m app.scenarios.cli validate scenarios/versailles-1919/2.5.yaml
+    uv run --project backend python -m app.scenarios.cli validate path/to/scenario.yaml
     uv run --project backend python -m app.scenarios.cli validate-all scenarios/
 
 The command checks field types, IDs, cross-references, the phase graph, and derives the initial runtime state. It prints a SHA-256 identity for the validated definition. It requires no database or model service.
