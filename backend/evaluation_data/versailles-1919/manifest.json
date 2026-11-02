@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "dataset_version": "versailles-retrieval-pilot-0.1",
+  "status": "draft",
+  "bm25_k1": 1.2,
+  "bm25_b": 0.75,
+  "rrf_k": 60,
+  "candidate_pool_size": 20,
+  "targets": {
+    "pilot": {
+      "target_queries": 40,
+      "actual_queries": 40,
+      "reviewed_queries": 40
+    },
+    "heldout": {
+      "target_queries": 100,
+      "actual_queries": 0,
+      "reviewed_queries": 0
+    }
+  },
+  "model_pins": {
+    "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+    "embedding_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "embedding_query_instruction_version": "qwen3-question-to-passages-en-v1",
+    "reranker_model": "Alibaba-NLP/gte-multilingual-reranker-base",
+    "reranker_revision": "8215cf04918ba6f7b6a62bb44238ce2953d8831c",
+    "reranker_code_revision": "40ced75c3017eb27626c9d4ea981bde21a2662f4"
+  },
+  "source_review_state": "reviewed",
+  "source_review_method": "agent",
+  "source_reviewer_ids": [
+    "gpt-6-astra:web-audit-2026-10-30"
+  ],
+  "judgment_scale": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "notes": [
+    "The 40 pilot questions have agent-reviewed relevance grades for the complete pooled top-ten candidate set; reviewer method and primary-source URLs are recorded on each query judgment.",
+    "The 100-query held-out set is a target and is not populated; do not report held-out acceptance.",
+    "Retrieval runs do not require exhaustive human review. Graded metrics use reviewed query pools and report review coverage.",
+    "All 13 source passages, the 40-query pilot, and its pooled candidate judgments were audited by gpt-6-astra:web-audit-2026-10-30 with internet access against primary sources listed in source records and per-query judgment notes.",
+    "FRUS publication dates are null where the online edition date was not verified; document creation and actor knowledge dates are recorded separately."
+  ],
+  "file_hashes": {
+    "sources.jsonl": "4e2c34b909145eb858aa9579e93b45319ab9286c4c24d85d6258a85c927ffe40",
+    "passages.jsonl": "8c83c32414e6ce532be3d2a4b3739f225fa96171681351d42cc0f2a896b5a2ee",
+    "pilot_queries.jsonl": "fd33c5f788ad2a99bef6e2960e2b97e874bb9f26d01cd1126b01ad4f85784d9a",
+    "heldout_queries.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "judgments.jsonl": "c0c8715a00438e7463001e1e3039fb04bd8501d5ec5b4b17829a0cce93b22b6e"
+  }
+}
