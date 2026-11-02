@@ -322,14 +322,16 @@ class LiteRerankerClient(_BaseLiteClient):
                 raise LiteClientError("Reranking result record is malformed")
             index = item.get("index")
             score = item.get("relevance_score")
-            if not isinstance(index, int) or not 0 <= index < len(documents):
-                raise LiteClientError("Reranking index is outside the submitted pool")
+            if type(index) is not int or not 0 <= index < len(documents):
+                raise LiteClientError("Reranking index must be an in-range integer")
             if index in scores_by_index:
                 raise LiteClientError("Reranking response contains a duplicate index")
+            if isinstance(score, bool) or not isinstance(score, (int, float)):
+                raise LiteClientError("Reranking score must be a JSON number")
             try:
                 numeric_score = float(score)
             except (TypeError, ValueError, OverflowError) as error:
-                raise LiteClientError("Reranking score is not numeric") from error
+                raise LiteClientError("Reranking score must be a finite JSON number") from error
             if not math.isfinite(numeric_score):
                 raise LiteClientError("Reranking score is non-finite")
             ranked_indexes.append(index)

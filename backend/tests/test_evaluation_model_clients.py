@@ -184,3 +184,85 @@ def test_reranker_client_rejects_wrong_code_revision() -> None:
             client.rerank("question", ["document"], top_n=1)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize(
+    ("results", "top_n", "expected_error"),
+    [
+        pytest.param(
+            [{"index": True, "relevance_score": 0.3}],
+            1,
+            "Reranking index",
+            id="boolean-index",
+        ),
+        pytest.param(
+            [{"index": 0, "relevance_score": True}],
+            1,
+            "Reranking score",
+            id="boolean-score",
+        ),
+        pytest.param(
+            [{"index": 0, "relevance_score": "0.3"}],
+            1,
+            "Reranking score",
+            id="string-score",
+        ),
+        pytest.param(
+            [{"index": 0, "relevance_score": None}],
+            1,
+            "Reranking score",
+            id="null-score",
+        ),
+        pytest.param(
+            [{"index": 2, "relevance_score": 0.3}],
+            1,
+            "Reranking index",
+            id="out-of-range-index",
+        ),
+        pytest.param(
+            [
+                {"index": 0, "relevance_score": 0.3},
+                {"index": 0, "relevance_score": 0.2},
+            ],
+            2,
+            "duplicate index",
+            id="duplicate-index",
+        ),
+    ],
+)
+def test_reranker_client_rejects_noncontract_result_types(
+    results: list[dict], top_n: int, expected_error: str
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path in {"/health", "/ready"}:
+            return httpx.Response(200)
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json=_metadata(
+                    "ddu-rerank",
+                    "rerank",
+                    GTE_REVISION,
+                    {"score_semantics": "raw_ranking_signal", "code_revision": GTE_CODE_REVISION},
+                    {"max_candidate_pairs": 20},
+                ),
+            )
+        assert request.url.path == "/v1/rerank"
+        return httpx.Response(
+            200,
+            json={
+                "model": "ddu-rerank",
+                "revision": GTE_REVISION,
+                "results": results,
+                "usage": {"prompt_tokens": 1, "total_tokens": 1},
+            },
+        )
+
+    client = LiteRerankerClient(
+        "http://rerank.test", http=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    try:
+        with pytest.raises(LiteClientError, match=expected_error):
+            client.rerank("question", ["first", "second"], top_n=top_n)
+    finally:
+        client.close()
