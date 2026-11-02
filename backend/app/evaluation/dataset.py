@@ -201,7 +201,7 @@ def validate_dataset(root: Path) -> ValidationSummary:
     }
     missing_hashes = required_hash_files - set(manifest.file_hashes)
     if missing_hashes:
-        warnings.append("Manifest is missing hashes for: " + ", ".join(sorted(missing_hashes)))
+        errors.append("Manifest is missing hashes for: " + ", ".join(sorted(missing_hashes)))
     for split_name, records in (("pilot", pilot), ("heldout", heldout)):
         target = manifest.targets[split_name]
         if len(records) != target.actual_queries:
