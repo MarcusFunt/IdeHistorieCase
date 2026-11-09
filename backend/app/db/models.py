@@ -60,6 +60,54 @@ class ScenarioVersion(Base):
     )
 
 
+class ScenarioContentItem(Base):
+    __tablename__ = "scenario_content_items"
+    __table_args__ = (
+        UniqueConstraint("scenario_version_id", "item_key"),
+        CheckConstraint("length(body) BETWEEN 1 AND 1048576"),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'"),
+        CheckConstraint("authoritative_scope = 'author_context'"),
+        CheckConstraint("mode IN ('gameplay', 'postgame')"),
+        CheckConstraint("review_status IN ('draft', 'author_reviewed')"),
+        CheckConstraint("jsonb_typeof(visibility) = 'array'"),
+        CheckConstraint("jsonb_typeof(source_refs) = 'array'"),
+        CheckConstraint("jsonb_typeof(metadata) = 'object'"),
+        CheckConstraint(
+            "world_valid_from IS NULL OR world_valid_to IS NULL "
+            "OR world_valid_from <= world_valid_to"
+        ),
+        Index(
+            "ix_scenario_content_items_runtime_filter",
+            "scenario_version_id",
+            "mode",
+            "review_status",
+        ),
+        Index("ix_scenario_content_items_visibility", "visibility", postgresql_using="gin"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    scenario_version_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("scenario_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    item_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    authoritative_scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    availability_date: Mapped[date | None] = mapped_column(Date)
+    world_valid_from: Mapped[date | None] = mapped_column(Date)
+    world_valid_to: Mapped[date | None] = mapped_column(Date)
+    visibility: Mapped[list] = mapped_column(JSONB, nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    review_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_refs: Mapped[list] = mapped_column(JSONB, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class GameSession(Base):
     __tablename__ = "game_sessions"
     __table_args__ = (CheckConstraint("turn_number >= 0"),)

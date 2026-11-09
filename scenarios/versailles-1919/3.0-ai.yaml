@@ -1,0 +1,73 @@
+# V2 intake release adapted from the project's authored Versailles v1 material.
+# It has no approved historical passages; source evidence readiness is separate.
+schema_version: 2
+slug: versailles-1919
+version: "3.0-ai"
+metadata:
+  title: "Parisfredskonferencen: åbent historisk rollespil"
+  language: da
+  summary: "Undersøg sikkerhed, retfærdighed og repræsentation gennem åbne handlinger."
+  subject: "Idéhistorie"
+  intended_audience: "HTX"
+  historical_period: {start: "1919-01-01", end: "1919-12-31"}
+historical_context:
+  introduction: >-
+    Du spiller en fiktiv britisk rådgiver ved fredsforhandlingerne i Paris i 1919.
+    Begrund forslag til en holdbar fred, mens deltagerne er uenige om sikkerhed,
+    økonomi, territorier og repræsentation. Tyskland deltog ikke som et ligeværdigt
+    medlem af Rådet af Fire under udarbejdelsen af de allieredes vilkår. Kinas og
+    andre berørte befolkningers perspektiver må ikke forveksles med stormagternes
+    interne drøftelser. Dine forslag kan skabe et alternativt forløb.
+  counterfactual_disclaimer: >-
+    Spillets forslag og reaktioner er kontrafaktiske modeller, ikke historiske
+    hændelser eller målte forudsigelser. Opdigtet dialog er ikke et historisk
+    citat. Historiske påstande kræver relevante, godkendte kildepassager.
+actors:
+  - {id: britain, name: "Den britiske delegation", description: "Historisk delegation med interne uenigheder om sikkerhed og økonomi.", motivations: [sikkerhed, genopbygning], knowledge_constraints: ["Delegationens perspektiv er ikke en samlet eller uforanderlig holdning."]}
+  - {id: france, name: "Den franske delegation", description: "Historisk delegation med sikkerheds- og genopbygningshensyn; ingen ensartet holdning antages.", motivations: [sikkerhed, genopbygning]}
+  - {id: united_states, name: "Den amerikanske delegation", description: "Historisk delegation med principper og politiske begrænsninger.", motivations: [principper, politisk gennemførlighed]}
+  - {id: germany, name: "Den tyske delegation", description: "Modtager af de allieredes vilkår og formel respondent efter fremlæggelsen.", motivations: [suverænitet, økonomisk genopretning]}
+  - {id: china, name: "Den kinesiske delegation", description: "Berørt delegation med egne forslag og indsigelser; ikke medlem af Rådet af Fire.", motivations: [suverænitet, repræsentation]}
+roles:
+  - id: british_adviser
+    actor_id: britain
+    title: "Fiktiv britisk forhandlingsrådgiver"
+    playable: true
+    introduction: "Du er opdigtet, ikke en historisk leder. Begrund et forslag og overvej, hvem der mangler indflydelse."
+    knowledge_constraints: ["Du må ikke behandle senere udfald som kendt i 1919."]
+default_role_id: british_adviser
+learning_objectives:
+  - id: weigh_security_and_justice
+    description: "Skeln mellem sikkerhed, straf og genopretning."
+    concepts: [sikkerhed, retfærdighed]
+    observable_behaviors: ["Begrund en prioritering.", "Forklar en omkostning eller modpartsbekymring."]
+  - id: examine_representation
+    description: "Undersøg hvem der deltager i beslutninger, og hvem der berøres uden tilsvarende indflydelse."
+    concepts: [repræsentation, selvbestemmelse]
+    observable_behaviors: ["Identificer en berørt part.", "Beskriv en begrænsning ved forhandlingsproceduren."]
+  - id: distinguish_evidence_and_simulation
+    description: "Skeln mellem godkendt historisk belæg, fortolkning og spillets kontrafaktiske udvikling."
+    concepts: [kildekritik, kontrafaktisk historie]
+    observable_behaviors: ["Knyt belæg til en historisk påstand.", "Mærk et alternativt udfald som kontrafaktisk."]
+chronology:
+  opening_date: "1919-04-01"
+  max_days_per_advance: 7
+interaction_guidance:
+  style: negotiation
+  freedom: open_ended
+  emphasize: [argumentation, competing_interests, historical_perspectives]
+content_items:
+  - key: opening_briefing
+    kind: author_briefing
+    file: notes/opening_briefing.md
+    mode: gameplay
+    visibility: [british_adviser]
+    review_status: draft
+    world_valid_from: "1919-04-01"
+completion_policy:
+  mode: goal_or_player_end
+  min_meaningful_decisions: 2
+  max_turns: 24
+  objective_ids: [weigh_security_and_justice, examine_representation]
+optional_beats: []
+source_refs: []

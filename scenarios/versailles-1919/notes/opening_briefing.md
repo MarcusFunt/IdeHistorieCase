@@ -1,0 +1,1 @@
+Du rådgiver den britiske delegation før de endelige fredsvilkår er fremlagt. Overvej forslag til sikkerhed, økonomi og repræsentation, og spørg hvilke berørte parter der mangler en stemme. Dette er forfatterudarbejdet scenariekontekst, ikke et godkendt historisk kildestykke.

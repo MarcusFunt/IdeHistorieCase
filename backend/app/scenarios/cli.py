@@ -4,13 +4,14 @@ import asyncio
 import json
 import re
 import sys
+from hashlib import sha256
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.connection import session_factory
-from app.db.models import ScenarioVersion
+from app.db.models import ScenarioContentItem, ScenarioVersion
 from app.scenarios.loader import load_scenario, validate_all
 from app.scenarios.repository import (
     ScenarioVersionNotFound,
@@ -18,8 +19,11 @@ from app.scenarios.repository import (
     activate_scenario_version,
     import_scenario,
     list_scenario_versions,
+    scenario_matches_loaded,
 )
+from app.scenarios.schema import ScenarioDefinition
 from app.scenarios.schema_v2 import ScenarioDefinitionV2
+from app.scenarios.validation import validate_definition, validate_v2_definition
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,6 +34,8 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("path", type=Path)
     validate_many = commands.add_parser("validate-all", help="validate manifests in a directory")
     validate_many.add_argument("directory", type=Path)
+    preview = commands.add_parser("preview", help="preview a validated release without a database")
+    preview.add_argument("path", type=Path)
 
     verify_pins = commands.add_parser(
         "verify-bundle-pins", help="verify byte-exact pins for authored scenario bundles"
@@ -48,6 +54,13 @@ def _parser() -> argparse.ArgumentParser:
     show = commands.add_parser("show", help="inspect one imported version")
     show.add_argument("slug")
     show.add_argument("--version", required=True)
+    playable = commands.add_parser(
+        "playable-check",
+        aliases=["check-playable"],
+        help="check an imported release and its SQL-backed content",
+    )
+    playable.add_argument("slug")
+    playable.add_argument("--version", required=True)
     return parser
 
 
@@ -63,6 +76,21 @@ def _summary(loaded) -> str:
         f"(schema {definition.schema_version}, sha256:{loaded.content_hash}{bundle}; "
         f"{details})"
     )
+
+
+def _preview(loaded) -> None:
+    print(f"Preview: {_summary(loaded)}")
+    definition = loaded.definition
+    if isinstance(definition, ScenarioDefinitionV2):
+        print(f"Opening date: {definition.chronology.opening_date.isoformat()}")
+        print(f"Default role: {definition.default_role_id}")
+        print("Historical passage approval: separate from author-content import")
+        for item in definition.content_items:
+            body = loaded.content_items[item.key]
+            excerpt = body[:400] + ("…" if len(body) > 400 else "")
+            print(f"Content {item.key} [{item.mode}, {item.review_status}]: {excerpt}")
+        if loaded.evidence_policy is None:
+            print("Evidence readiness: no source access policy attached")
 
 
 def _verify_bundle_pins(directory: Path) -> tuple[int, int]:
@@ -102,8 +130,6 @@ def _verify_bundle_pins(directory: Path) -> tuple[int, int]:
 async def _import_command(path: Path, dry_run: bool) -> int:
     loaded = load_scenario(path)
     definition = loaded.definition
-    if definition.schema_version == 2:
-        raise ValueError("v2 SQL publication is not implemented until Goal 3")
     if dry_run:
         async with session_factory() as db:
             existing = (
@@ -114,23 +140,15 @@ async def _import_command(path: Path, dry_run: bool) -> int:
                     )
                 )
             ).scalar_one_or_none()
-        if existing is None:
-            print(f"Dry run: would insert {_summary(loaded)}")
-        elif (
-            existing.schema_version == definition.schema_version
-            and existing.content_hash == loaded.content_hash
-            and existing.bundle_hash == loaded.bundle_hash
-            and existing.behavior_rules == loaded.behavior_rules
-            and existing.evidence_policy == loaded.evidence_policy
-            and existing.definition == definition.model_dump(mode="json")
-            and existing.initial_state == loaded.initial_state
-        ):
-            print(f"Dry run: unchanged {_summary(loaded)}")
-        else:
-            raise VersionContentConflict(
-                f"{definition.slug}@{definition.version} already contains different content; "
-                "increment the scenario version"
-            )
+            if existing is None:
+                print(f"Dry run: would insert {_summary(loaded)}")
+            elif await scenario_matches_loaded(db, existing, loaded):
+                print(f"Dry run: unchanged {_summary(loaded)}")
+            else:
+                raise VersionContentConflict(
+                    f"{definition.slug}@{definition.version} already contains different content; "
+                    "increment the scenario version"
+                )
         return 0
 
     async with session_factory() as db, db.begin():
@@ -180,6 +198,14 @@ async def _show_command(slug: str, version: str) -> int:
             f"(active={str(scenario.is_active).lower()}, initial_state={scenario.initial_state})"
         )
         return 0
+    async with session_factory() as db:
+        content_items = (
+            await db.execute(
+                select(ScenarioContentItem)
+                .where(ScenarioContentItem.scenario_version_id == scenario.id)
+                .order_by(ScenarioContentItem.item_key)
+            )
+        ).scalars().all()
     print(
         json.dumps(
             {
@@ -192,6 +218,30 @@ async def _show_command(slug: str, version: str) -> int:
                 "bundle_hash": scenario.bundle_hash,
                 "initial_state": scenario.initial_state,
                 "definition": scenario.definition,
+                "content_items": [
+                    {
+                        "key": item.item_key,
+                        "kind": item.kind,
+                        "language": item.language,
+                        "body": item.body,
+                        "authoritative_scope": item.authoritative_scope,
+                        "availability_date": (
+                            item.availability_date.isoformat() if item.availability_date else None
+                        ),
+                        "world_valid_from": (
+                            item.world_valid_from.isoformat() if item.world_valid_from else None
+                        ),
+                        "world_valid_to": (
+                            item.world_valid_to.isoformat() if item.world_valid_to else None
+                        ),
+                        "visibility": item.visibility,
+                        "mode": item.mode,
+                        "review_status": item.review_status,
+                        "source_refs": item.source_refs,
+                        "sha256": item.sha256,
+                    }
+                    for item in content_items
+                ],
             },
             ensure_ascii=False,
             indent=2,
@@ -201,6 +251,65 @@ async def _show_command(slug: str, version: str) -> int:
     return 0
 
 
+async def _playable_check_command(slug: str, version: str) -> int:
+    async with session_factory() as db:
+        scenario = (
+            await db.execute(
+                select(ScenarioVersion).where(
+                    ScenarioVersion.slug == slug,
+                    ScenarioVersion.version == version,
+                )
+            )
+        ).scalar_one_or_none()
+        if scenario is None:
+            raise ScenarioVersionNotFound(f"scenario version not found: {slug}@{version}")
+        if scenario.definition is None:
+            raise ValueError(f"{slug}@{version} is an unauthored legacy stub")
+        if scenario.schema_version == 2:
+            definition = ScenarioDefinitionV2.model_validate(scenario.definition)
+            validate_v2_definition(definition)
+            rows = (
+                await db.execute(
+                    select(ScenarioContentItem)
+                    .where(ScenarioContentItem.scenario_version_id == scenario.id)
+                    .order_by(ScenarioContentItem.item_key)
+                )
+            ).scalars().all()
+            expected = {item.key: item for item in definition.content_items}
+            by_key = {row.item_key: row for row in rows}
+            if set(by_key) != set(expected):
+                raise ValueError("SQL content item rows do not match the immutable v2 manifest")
+            for key, item in expected.items():
+                row = by_key[key]
+                if (
+                    row.kind != item.kind
+                    or row.language != definition.metadata.language
+                    or row.authoritative_scope != "author_context"
+                    or row.availability_date != item.availability_date
+                    or row.world_valid_from != item.world_valid_from
+                    or row.world_valid_to != item.world_valid_to
+                    or row.visibility != item.visibility
+                    or row.mode != item.mode
+                    or row.review_status != item.review_status
+                    or row.source_refs != item.source_refs
+                    or row.metadata_json != {"source_file": item.file}
+                    or row.sha256 != sha256(row.body.encode("utf-8")).hexdigest()
+                ):
+                    raise ValueError(f"SQL content item {key!r} does not match the v2 release")
+            print(
+                f"Playable-check passed: {slug}@{version} has a playable default role, "
+                f"authoritative opening date, and {len(rows)} SQL content item(s). "
+                "Evidence readiness is separate and requires eligible approved passages."
+            )
+            return 0
+        if scenario.schema_version == 1:
+            definition = ScenarioDefinition.model_validate(scenario.definition)
+            validate_definition(definition)
+            print(f"Playable-check passed: {slug}@{version} (schema 1 compatibility release).")
+            return 0
+        raise ValueError(f"unsupported stored schema_version: {scenario.schema_version!r}")
+
+
 async def _run_database_command(args) -> int:
     if args.command == "import":
         return await _import_command(args.path, args.dry_run)
@@ -208,6 +317,8 @@ async def _run_database_command(args) -> int:
         return await _activate_command(args.slug, args.version)
     if args.command == "list":
         return await _list_command()
+    if args.command in {"playable-check", "check-playable"}:
+        return await _playable_check_command(args.slug, args.version)
     return await _show_command(args.slug, args.version)
 
 
@@ -216,6 +327,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate":
             print(_summary(load_scenario(args.path)))
+            return 0
+        if args.command == "preview":
+            _preview(load_scenario(args.path))
             return 0
         if args.command == "validate-all":
             scenarios = validate_all(args.directory)

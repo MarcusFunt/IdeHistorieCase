@@ -1,12 +1,14 @@
 """Transactional persistence for authored, immutable scenario definitions."""
 from dataclasses import dataclass
+from hashlib import sha256
 from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ScenarioVersion
+from app.db.models import ScenarioContentItem, ScenarioVersion
 from app.scenarios.loader import LoadedScenario
+from app.scenarios.schema_v2 import ScenarioDefinitionV2
 
 
 class VersionContentConflict(ValueError):
@@ -30,10 +32,103 @@ async def _advisory_lock(db: AsyncSession, key: str) -> None:
 async def _advisory_shared_lock(db: AsyncSession, key: str) -> None:
     await db.execute(select(func.pg_advisory_xact_lock_shared(func.hashtextextended(key, 0))))
 
+
+def _expected_content_items(loaded: LoadedScenario) -> list[dict]:
+    if not isinstance(loaded.definition, ScenarioDefinitionV2):
+        if loaded.content_items:
+            raise ValueError("schema v1 releases cannot contain v2 scenario content items")
+        return []
+
+    expected_keys = {item.key for item in loaded.definition.content_items}
+    if set(loaded.content_items) != expected_keys:
+        raise ValueError("v2 import requires loaded text for every manifest content item")
+    expected = []
+    for item in loaded.definition.content_items:
+        body = loaded.content_items[item.key]
+        expected.append(
+            {
+                "item_key": item.key,
+                "kind": item.kind,
+                "language": loaded.definition.metadata.language,
+                "body": body,
+                "authoritative_scope": "author_context",
+                "availability_date": item.availability_date,
+                "world_valid_from": item.world_valid_from,
+                "world_valid_to": item.world_valid_to,
+                "visibility": list(item.visibility),
+                "mode": item.mode,
+                "review_status": item.review_status,
+                "source_refs": list(item.source_refs),
+                "metadata_json": {"source_file": item.file},
+                "sha256": sha256(body.encode("utf-8")).hexdigest(),
+            }
+        )
+    return sorted(expected, key=lambda value: value["item_key"])
+
+
+async def _stored_content_matches(
+    db: AsyncSession,
+    scenario_version_id,
+    expected: list[dict],
+) -> bool:
+    rows = (
+        await db.execute(
+            select(ScenarioContentItem)
+            .where(ScenarioContentItem.scenario_version_id == scenario_version_id)
+            .order_by(ScenarioContentItem.item_key)
+        )
+    ).scalars().all()
+    if len(rows) != len(expected):
+        return False
+    fields = (
+        "item_key",
+        "kind",
+        "language",
+        "body",
+        "authoritative_scope",
+        "availability_date",
+        "world_valid_from",
+        "world_valid_to",
+        "visibility",
+        "mode",
+        "review_status",
+        "source_refs",
+        "metadata_json",
+        "sha256",
+    )
+    return all(
+        all(getattr(row, field) == expected_item[field] for field in fields)
+        for row, expected_item in zip(rows, expected, strict=True)
+    )
+
+
+async def scenario_matches_loaded(
+    db: AsyncSession,
+    existing: ScenarioVersion,
+    loaded: LoadedScenario,
+) -> bool:
+    """Check both immutable manifest fields and the full SQL-backed note set."""
+    definition = loaded.definition
+    if not (
+        existing.schema_version == definition.schema_version
+        and existing.content_hash == loaded.content_hash
+        and existing.bundle_hash == loaded.bundle_hash
+        and existing.behavior_rules == loaded.behavior_rules
+        and existing.evidence_policy == loaded.evidence_policy
+        and existing.definition == definition.model_dump(mode="json")
+        and existing.initial_state == loaded.initial_state
+    ):
+        return False
+    return await _stored_content_matches(
+        db,
+        existing.id,
+        _expected_content_items(loaded),
+    )
+
+
 async def import_scenario(db: AsyncSession, loaded: LoadedScenario) -> ImportResult:
     definition = loaded.definition
-    if definition.schema_version == 2:
-        raise ValueError("v2 SQL publication is not implemented until Goal 3")
+    expected_content = _expected_content_items(loaded)
     await _advisory_lock(db, f"scenario-import:{definition.slug}:{definition.version}")
     existing = (
         await db.execute(
@@ -46,16 +141,7 @@ async def import_scenario(db: AsyncSession, loaded: LoadedScenario) -> ImportRes
         )
     ).scalar_one_or_none()
     if existing is not None:
-        same_content = (
-            existing.schema_version == definition.schema_version
-            and existing.content_hash == loaded.content_hash
-            and existing.bundle_hash == loaded.bundle_hash
-            and existing.behavior_rules == loaded.behavior_rules
-            and existing.evidence_policy == loaded.evidence_policy
-            and existing.definition == definition.model_dump(mode="json")
-            and existing.initial_state == loaded.initial_state
-        )
-        if same_content:
+        if await scenario_matches_loaded(db, existing, loaded):
             return ImportResult("unchanged", existing)
         raise VersionContentConflict(
             f"{definition.slug}@{definition.version} already contains different immutable "
@@ -77,6 +163,16 @@ async def import_scenario(db: AsyncSession, loaded: LoadedScenario) -> ImportRes
     )
     db.add(scenario)
     await db.flush()
+    for item in expected_content:
+        db.add(
+            ScenarioContentItem(
+                id=uuid4(),
+                scenario_version_id=scenario.id,
+                **item,
+            )
+        )
+    if expected_content:
+        await db.flush()
     return ImportResult("created", scenario)
 
 

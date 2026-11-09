@@ -100,31 +100,27 @@ def test_v2_content_file_size_is_bounded(tmp_path: Path):
         load_scenario(path)
 
 
-def test_v2_validation_cli_works_and_import_is_rejected_before_database_use(tmp_path: Path, monkeypatch, capsys):
+def test_v2_preview_is_database_free_and_malformed_import_fails_before_database_use(
+    tmp_path: Path, monkeypatch, capsys
+):
     from app.scenarios import cli
 
     path = copy_bundle(tmp_path)
     assert cli.main(["validate", str(path)]) == 0
     assert "schema 2" in capsys.readouterr().out
+    assert cli.main(["preview", str(path)]) == 0
+    assert "site_briefing" in capsys.readouterr().out
 
     def no_database_access():
-        raise AssertionError("v2 import reached the database before Goal 3")
+        raise AssertionError("malformed v2 import reached the database")
 
     monkeypatch.setattr(cli, "session_factory", no_database_access)
-    assert cli.main(["import", str(path)]) == 2
-    assert "v2 SQL publication is not implemented" in capsys.readouterr().err
-
-
-def test_v2_repository_import_is_rejected_before_database_use(tmp_path: Path):
-    import asyncio
-
-    from app.scenarios.loader import load_scenario
-    from app.scenarios.repository import import_scenario
-
-    class NoDatabase:
-        async def execute(self, *_args, **_kwargs):
-            raise AssertionError("v2 import reached the database before Goal 3")
-
-    loaded = load_scenario(copy_bundle(tmp_path))
-    with pytest.raises(ValueError, match="v2 SQL publication is not implemented"):
-        asyncio.run(import_scenario(NoDatabase(), loaded))
+    malformed = copy_bundle(tmp_path / "malformed")
+    malformed.write_text(
+        malformed.read_text(encoding="utf-8").replace(
+            "file: notes/site_briefing.md", "file: notes/missing.md"
+        ),
+        encoding="utf-8",
+    )
+    assert cli.main(["import", str(malformed)]) == 2
+    assert "cannot read content file" in capsys.readouterr().err
