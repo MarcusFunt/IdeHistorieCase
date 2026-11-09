@@ -102,6 +102,21 @@ def is_eligible(
     if source_is_restricted != (passage.visibility_scope == "confidential"):
         return False
 
+    if context.mode == "postgame" and passage.source_identifier in available:
+        policy_actor_ids = entry.get("actor_ids")
+        public_postgame = (
+            passage.postgame_only
+            and passage.visibility_scope == "postgame"
+            and not passage.actor_ids
+            and policy_actor_ids == []
+        )
+        if not public_postgame and (
+            context.actor_id is None
+            or not isinstance(policy_actor_ids, list)
+            or context.actor_id not in policy_actor_ids
+        ):
+            return False
+
     source_availability = entry.get("in_world_available_from")
     if source_availability == "postgame":
         if not passage.postgame_only or passage.in_world_available_from is not None:
@@ -125,7 +140,11 @@ def is_eligible(
             return False
         if context.actor_id is None:
             return not passage.actor_ids and entry.get("actor_ids") == []
-        return context.actor_id in passage.actor_ids
+        if context.actor_id in passage.actor_ids:
+            return True
+        # A public postgame-only source may be used in a role-aware reflection
+        # even though its passage and policy have no actor assignment.
+        return not passage.actor_ids and entry.get("actor_ids") == []
 
     if context.mode == "gameplay":
         if passage.document_date > context.world_date:
