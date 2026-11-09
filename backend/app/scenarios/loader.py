@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import yaml
@@ -16,9 +16,11 @@ from yaml.tokens import AliasToken, AnchorToken
 from app.scenarios.bundle import scenario_bundle_hash
 from app.scenarios.evidence import VALID_SCOPES
 from app.scenarios.schema import ScenarioDefinition
-from app.scenarios.validation import validate_definition
+from app.scenarios.schema_v2 import ScenarioDefinitionV2
+from app.scenarios.validation import validate_definition, validate_v2_definition
 
 MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_CONTENT_ITEM_BYTES = 1024 * 1024
 
 
 class _UniqueSafeLoader(yaml.SafeLoader):
@@ -48,13 +50,14 @@ _UniqueSafeLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG
 
 @dataclass(frozen=True)
 class LoadedScenario:
-    definition: ScenarioDefinition
+    definition: ScenarioDefinition | ScenarioDefinitionV2
     initial_state: dict[str, Any]
     content_hash: str
     path: Path | None = None
     bundle_hash: str | None = None
     behavior_rules: dict[str, Any] | None = None
     evidence_policy: dict[str, Any] | None = None
+    content_items: dict[str, str] = field(default_factory=dict)
 
 
 def initial_state_for(definition: ScenarioDefinition) -> dict[str, Any]:
@@ -76,7 +79,7 @@ def initial_state_for(definition: ScenarioDefinition) -> dict[str, Any]:
     }
 
 
-def canonical_hash(definition: ScenarioDefinition) -> str:
+def canonical_hash(definition: ScenarioDefinition | ScenarioDefinitionV2) -> str:
     content = json.dumps(
         definition.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
         ensure_ascii=False, allow_nan=False,
@@ -110,12 +113,77 @@ def load_scenario_text(text: str, path: Path | None = None) -> LoadedScenario:
         raise ValueError("scenario manifest must contain exactly one YAML document")
     if not isinstance(documents[0], dict):
         raise ValueError("scenario manifest top level must be a mapping")
+    schema_version = documents[0].get("schema_version")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        raise ValueError(f"unsupported or invalid schema_version: {schema_version!r}")
     try:
-        definition = ScenarioDefinition.model_validate(documents[0])
+        if schema_version == 1:
+            definition = ScenarioDefinition.model_validate(documents[0])
+            validate_definition(definition)
+            initial_state = initial_state_for(definition)
+        else:
+            definition = ScenarioDefinitionV2.model_validate(documents[0])
+            validate_v2_definition(definition)
+            initial_state = {}
     except ValidationError as exc:
         raise ValueError(f"invalid scenario: {_validation_message(exc)}") from exc
-    validate_definition(definition)
-    return LoadedScenario(definition, initial_state_for(definition), canonical_hash(definition), path)
+    return LoadedScenario(definition, initial_state, canonical_hash(definition), path)
+
+
+def _read_v2_content_files(
+    manifest_path: Path, definition: ScenarioDefinitionV2
+) -> tuple[dict[str, str], dict[str, bytes]]:
+    root = manifest_path.parent.resolve()
+    text_by_key: dict[str, str] = {}
+    bytes_by_path: dict[str, bytes] = {}
+    for item in definition.content_items:
+        raw_path = item.file
+        posix_path = PurePosixPath(raw_path)
+        windows_path = PureWindowsPath(raw_path)
+        raw_parts = raw_path.split("/")
+        if (
+            "\\" in raw_path
+            or posix_path.is_absolute()
+            or windows_path.is_absolute()
+            or windows_path.drive
+            or any(part in {"", ".", ".."} for part in raw_parts)
+        ):
+            raise ValueError(f"content item {item.key!r} has an unsafe path: {raw_path!r}")
+        if posix_path.as_posix() == manifest_path.name:
+            raise ValueError(f"content item {item.key!r} cannot use the scenario manifest as content")
+        candidate = root.joinpath(*posix_path.parts)
+        try:
+            resolved_path = candidate.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ValueError(f"cannot read content file {raw_path!r}: {exc}") from exc
+        try:
+            resolved_path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"content item {item.key!r} path escapes the scenario bundle: {raw_path!r}"
+            ) from exc
+        try:
+            if not resolved_path.is_file():
+                raise OSError("not a regular file")
+            if resolved_path.stat().st_size > MAX_CONTENT_ITEM_BYTES:
+                raise ValueError(
+                    f"content file exceeds maximum size of {MAX_CONTENT_ITEM_BYTES} bytes: {raw_path}"
+                )
+            content = resolved_path.read_bytes()
+        except ValueError:
+            raise
+        except OSError as exc:
+            raise ValueError(f"cannot read content file {raw_path!r}: {exc}") from exc
+        if len(content) > MAX_CONTENT_ITEM_BYTES:
+            raise ValueError(
+                f"content file exceeds maximum size of {MAX_CONTENT_ITEM_BYTES} bytes: {raw_path}"
+            )
+        try:
+            text_by_key[item.key] = content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"content file must be UTF-8: {raw_path}") from exc
+        bytes_by_path[posix_path.as_posix()] = content
+    return text_by_key, bytes_by_path
 
 
 def _load_sidecar(path: Path) -> dict[str, Any]:
@@ -303,6 +371,22 @@ def load_scenario(path: str | Path) -> LoadedScenario:
     except UnicodeDecodeError as exc:
         raise ValueError(f"scenario manifest must be UTF-8: {manifest_path}") from exc
     loaded = load_scenario_text(text, manifest_path)
+    if isinstance(loaded.definition, ScenarioDefinitionV2):
+        content_items, content_files = _read_v2_content_files(manifest_path, loaded.definition)
+        unsupported_sidecars = [
+            manifest_path.with_name(f"{manifest_path.stem}_behaviors.yaml"),
+            manifest_path.with_name(f"{manifest_path.stem}_evidence.yaml"),
+        ]
+        if any(sidecar.exists() for sidecar in unsupported_sidecars):
+            raise ValueError("schema v2 does not support v1 behavior/evidence sidecars")
+        return LoadedScenario(
+            loaded.definition,
+            loaded.initial_state,
+            loaded.content_hash,
+            manifest_path,
+            scenario_bundle_hash(manifest_path, content, content_files),
+            content_items=content_items,
+        )
     behavior_path = manifest_path.with_name(f"{manifest_path.stem}_behaviors.yaml")
     evidence_path = manifest_path.with_name(f"{manifest_path.stem}_evidence.yaml")
     behavior_rules = (

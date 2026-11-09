@@ -19,6 +19,7 @@ from app.scenarios.repository import (
     import_scenario,
     list_scenario_versions,
 )
+from app.scenarios.schema_v2 import ScenarioDefinitionV2
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,10 +54,14 @@ def _parser() -> argparse.ArgumentParser:
 def _summary(loaded) -> str:
     definition = loaded.definition
     bundle = f", bundle-sha256:{loaded.bundle_hash}" if loaded.bundle_hash else ""
+    if isinstance(definition, ScenarioDefinitionV2):
+        details = f"{len(definition.roles)} roles, {len(definition.content_items)} content items"
+    else:
+        details = f"{len(definition.phases)} phases, {len(definition.dilemmas)} dilemmas"
     return (
         f"{definition.slug}@{definition.version} "
         f"(schema {definition.schema_version}, sha256:{loaded.content_hash}{bundle}; "
-        f"{len(definition.phases)} phases, {len(definition.dilemmas)} dilemmas)"
+        f"{details})"
     )
 
 
@@ -97,6 +102,8 @@ def _verify_bundle_pins(directory: Path) -> tuple[int, int]:
 async def _import_command(path: Path, dry_run: bool) -> int:
     loaded = load_scenario(path)
     definition = loaded.definition
+    if definition.schema_version == 2:
+        raise ValueError("v2 SQL publication is not implemented until Goal 3")
     if dry_run:
         async with session_factory() as db:
             existing = (

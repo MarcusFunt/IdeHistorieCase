@@ -151,7 +151,7 @@ def test_phase_without_terminal_route_is_rejected(tmp_path: Path):
 
 def test_unsupported_schema_version_is_rejected(tmp_path: Path):
     path = tmp_path / "unsupported.yaml"
-    path.write_text(MINIMAL_SCENARIO.replace("schema_version: 1", "schema_version: 2"), encoding="utf-8")
+    path.write_text(MINIMAL_SCENARIO.replace("schema_version: 1", "schema_version: 9"), encoding="utf-8")
 
     with pytest.raises(ValueError, match="schema_version"):
         loader_module()(path)
