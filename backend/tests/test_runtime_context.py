@@ -176,6 +176,7 @@ def evidence_policy() -> dict:
 def passage_candidate(
     source_id: str,
     *,
+    text: str | None = None,
     actor_ids: tuple[str, ...] = ("factory_owner",),
     document_date: date = date(1888, 4, 20),
     available_from: date | None = date(1888, 4, 20),
@@ -184,7 +185,7 @@ def passage_candidate(
     review_status: str = "approved",
     rights_status: str = "approved",
 ) -> SearchCandidate:
-    text = f"Kontrolleret passage for {source_id}."
+    text = text or f"Kontrolleret passage for {source_id}."
     passage = EvidencePassage(
         id=uuid4(),
         scenario_version_id=RELEASE_ID,
@@ -479,6 +480,37 @@ async def test_context_budget_is_deterministic_and_keeps_critical_constraints():
     assert first.truncated_note_keys == ("site_briefing",)
     assert "kontrafaktisk" in first.payload["historical_context"]["counterfactual_disclaimer"]
     assert first.payload["constraints"]
+
+
+@pytest.mark.asyncio
+async def test_context_budget_keeps_later_short_evidence_after_omitting_oversized_passage():
+    db, session, rag, _ = prepared_context(
+        source_ids=["R01", "R04"],
+        candidates=[
+            passage_candidate(
+                "R01",
+                text="langt historisk belæg " * 600,
+                document_date=date(1888, 4, 30),
+                available_from=date(1888, 4, 30),
+            ),
+            passage_candidate("R04"),
+        ],
+        policy=evidence_policy(),
+        state={"world_date": "1888-05-01"},
+    )
+    context = await build_session_context(
+        db,
+        session,
+        stage="turn",
+        query="arbejdsvilkår",
+        retrieval_service=rag,
+        max_chars=5000,
+    )
+
+    assert context.evidence_status == "available"
+    assert [item["source_identifier"] for item in context.payload["evidence"]["passages"]] == ["R04"]
+    assert context.omitted_evidence_count == 1
+    assert context.serialized_chars <= 5000
 
 
 @pytest.mark.asyncio

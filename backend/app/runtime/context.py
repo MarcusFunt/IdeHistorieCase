@@ -217,15 +217,14 @@ def _fit_context(
         raise ValueError("max_chars is too small for protected scenario constraints")
 
     omitted_evidence = 0
-    for index, passage in enumerate(passages):
+    for passage in passages:
         proposed = [*payload["evidence"]["passages"], passage]
         status = "available"
         candidate = {**payload, "evidence": {"status": status, "passages": proposed}}
         if _serialized_chars(candidate) <= max_chars:
             payload = candidate
         else:
-            omitted_evidence += len(passages) - index
-            break
+            omitted_evidence += 1
     if not payload["evidence"]["passages"]:
         payload["evidence"] = {"status": RAG_NO_EVIDENCE, "passages": []}
 
