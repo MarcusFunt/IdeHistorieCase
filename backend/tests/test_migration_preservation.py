@@ -230,7 +230,7 @@ async def test_upgrade_from_previous_scenario_revision_preserves_release_and_con
                 "sha256": sha256(
                     loaded.content_items[loaded.definition.content_items[0].key].encode("utf-8")
                 ).hexdigest(),
-                "migration_head": "0008_scenario_content_guards",
+                "migration_head": "0009_content_item_hash_guard",
             }
         finally:
             await db.close()

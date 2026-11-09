@@ -334,6 +334,85 @@ async def test_sql_guard_rejects_content_metadata_that_disagrees_with_manifest(t
         assert await db.get(ScenarioVersion, version_id) is None
 
 
+async def test_sql_guard_rejects_empty_v2_content_manifest(tmp_path):
+    path, version = copy_release(tmp_path)
+    loaded = load_scenario(path)
+    version_id = uuid4()
+    invalid_definition = loaded.definition.model_dump(mode="json")
+    invalid_definition["content_items"] = []
+
+    with pytest.raises(DBAPIError, match="ck_scenario_v2_manifest_nonempty_content_items"):
+        async with session_factory() as db, db.begin():
+            db.add(
+                ScenarioVersion(
+                    id=version_id,
+                    slug=loaded.definition.slug,
+                    version=version,
+                    schema_version=2,
+                    definition=invalid_definition,
+                    initial_state=loaded.initial_state,
+                    content_hash=loaded.content_hash,
+                    bundle_hash=loaded.bundle_hash,
+                    evidence_policy=loaded.evidence_policy,
+                    is_active=False,
+                )
+            )
+            await db.flush()
+
+    async with session_factory() as db:
+        assert await db.get(ScenarioVersion, version_id) is None
+
+
+async def test_sql_guard_rejects_content_hash_that_disagrees_with_body(tmp_path):
+    path, version = copy_release(tmp_path)
+    loaded = load_scenario(path)
+    version_id = uuid4()
+    item = loaded.definition.content_items[0]
+    body = loaded.content_items[item.key]
+
+    with pytest.raises(DBAPIError, match="SHA-256 does not match its body"):
+        async with session_factory() as db, db.begin():
+            db.add(
+                ScenarioVersion(
+                    id=version_id,
+                    slug=loaded.definition.slug,
+                    version=version,
+                    schema_version=2,
+                    definition=loaded.definition.model_dump(mode="json"),
+                    initial_state=loaded.initial_state,
+                    content_hash=loaded.content_hash,
+                    bundle_hash=loaded.bundle_hash,
+                    evidence_policy=loaded.evidence_policy,
+                    is_active=False,
+                )
+            )
+            await db.flush()
+            db.add(
+                ScenarioContentItem(
+                    id=uuid4(),
+                    scenario_version_id=version_id,
+                    item_key=item.key,
+                    kind=item.kind,
+                    language=loaded.definition.metadata.language,
+                    body=body,
+                    authoritative_scope="author_context",
+                    availability_date=item.availability_date,
+                    world_valid_from=item.world_valid_from,
+                    world_valid_to=item.world_valid_to,
+                    visibility=list(item.visibility),
+                    mode=item.mode,
+                    review_status=item.review_status,
+                    source_refs=list(item.source_refs),
+                    metadata_json={"source_file": item.file},
+                    sha256="0" * 64,
+                )
+            )
+            await db.flush()
+
+    async with session_factory() as db:
+        assert await db.get(ScenarioVersion, version_id) is None
+
+
 async def test_concurrent_conflicting_v2_imports_leave_one_complete_release(tmp_path):
     path, version = copy_release(tmp_path)
     first = load_scenario(path)
