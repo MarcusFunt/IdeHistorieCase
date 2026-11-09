@@ -32,6 +32,8 @@ async def _advisory_shared_lock(db: AsyncSession, key: str) -> None:
 
 async def import_scenario(db: AsyncSession, loaded: LoadedScenario) -> ImportResult:
     definition = loaded.definition
+    if definition.schema_version == 2:
+        raise ValueError("v2 SQL publication is not implemented until Goal 3")
     await _advisory_lock(db, f"scenario-import:{definition.slug}:{definition.version}")
     existing = (
         await db.execute(

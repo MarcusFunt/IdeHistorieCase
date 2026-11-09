@@ -1,0 +1,57 @@
+# Schema fixture only: demonstrates investigation-oriented interaction; not a sourced playable level.
+schema_version: 2
+slug: industrial-inquiry
+version: "1.0"
+metadata:
+  title: "Undersøgelse af arbejdsvilkår"
+  language: da
+  summary: "En undersøgelse af konkurrerende forklaringer og sociale hensyn."
+  subject: "Idéhistorie"
+  intended_audience: "HTX"
+  historical_period: {start: "1880-01-01", end: "1890-12-31"}
+historical_context:
+  introduction: "Spilleren undersøger modstridende oplysninger om en arbejdsplads."
+  counterfactual_disclaimer: "Samtaler og konsekvenser i spillet er simulerede."
+actors:
+  - id: factory_owner
+    name: "Fabrikkens ejer"
+    description: "En lokal arbejdsgiver med økonomiske og sociale hensyn."
+    motivations: ["stabil drift", "økonomisk overlevelse"]
+    knowledge_constraints: ["Kender egne beslutninger, men ikke alle arbejderes oplevelser."]
+roles:
+  - id: investigator
+    actor_id: factory_owner
+    title: "Undersøger"
+    playable: true
+    introduction: "Du indsamler oplysninger før du drager en konklusion."
+    knowledge_constraints: ["Du kender kun oplysninger, der er gjort tilgængelige i sagen."]
+default_role_id: investigator
+learning_objectives:
+  - id: weigh_evidence
+    description: "Sammenlign forskellige forklaringer på arbejdsvilkår."
+    concepts: ["vidnesbyrd", "interessekonflikt"]
+    observable_behaviors: ["Sammenholder mindst to perspektiver.", "Begrundet konklusion med usikkerhed."]
+chronology:
+  opening_date: "1888-05-01"
+  max_days_per_advance: 7
+interaction_guidance:
+  style: investigation
+  freedom: open_ended
+  emphasize: ["undersøgelse", "sammenligning", "begrundelse"]
+content_items:
+  - key: site_briefing
+    kind: author_briefing
+    file: notes/site_briefing.md
+    mode: gameplay
+    visibility: [investigator]
+    review_status: author_reviewed
+    world_valid_from: "1888-05-01"
+    world_valid_to: "1888-12-31"
+    source_refs: [R01]
+completion_policy:
+  mode: goal_or_player_end
+  min_meaningful_decisions: 2
+  max_turns: 24
+  objective_ids: [weigh_evidence]
+optional_beats: []
+source_refs: [R01]

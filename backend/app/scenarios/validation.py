@@ -7,6 +7,7 @@ from app.scenarios.schema import (
     ScenarioDefinition,
     SetFlagPermission,
 )
+from app.scenarios.schema_v2 import ScenarioDefinitionV2
 
 
 def validate_definition(definition: ScenarioDefinition) -> None:
@@ -114,5 +115,94 @@ def validate_definition(definition: ScenarioDefinition) -> None:
             errors.append(f"adjust_metric target {event.target_id!r} must reference an integer metric")
         if isinstance(event, SetFlagPermission) and event.target_id not in flags:
             errors.append(f"set_flag target {event.target_id!r} must reference a boolean flag")
+    if errors:
+        raise ValueError("; ".join(errors))
+
+
+def validate_v2_definition(definition: ScenarioDefinitionV2) -> None:
+    """Validate v2 references and date bounds without imposing a phase graph."""
+    namespaces = {
+        "actor": [item.id for item in definition.actors],
+        "role": [item.id for item in definition.roles],
+        "learning objective": [item.id for item in definition.learning_objectives],
+        "content key": [item.key for item in definition.content_items],
+        "optional beat": [item.id for item in definition.optional_beats],
+    }
+    errors: list[str] = []
+    seen_ids: dict[str, str] = {}
+    for namespace, values in namespaces.items():
+        duplicates = sorted({value for value in values if values.count(value) > 1})
+        if duplicates:
+            errors.append(f"duplicate {namespace} id(s): {', '.join(duplicates)}")
+        for value in values:
+            if value in seen_ids:
+                errors.append(f"id {value!r} is shared by {seen_ids[value]} and {namespace}")
+            else:
+                seen_ids[value] = namespace
+
+    historical_period = definition.metadata.historical_period
+    if historical_period.start > historical_period.end:
+        errors.append("historical_period requires start <= end")
+    if not historical_period.start <= definition.chronology.opening_date <= historical_period.end:
+        errors.append("chronology.opening_date must fall within historical_period")
+
+    actors = {actor.id for actor in definition.actors}
+    roles = {role.id: role for role in definition.roles}
+    objectives = {objective.id for objective in definition.learning_objectives}
+    sources = set(definition.source_refs)
+    if definition.default_role_id not in roles:
+        errors.append(f"default role {definition.default_role_id!r} does not exist")
+    elif not roles[definition.default_role_id].playable:
+        errors.append(f"default role {definition.default_role_id!r} must be playable")
+
+    for role in definition.roles:
+        if role.actor_id not in actors:
+            errors.append(f"role {role.id!r} references unknown actor {role.actor_id!r}")
+
+    unknown_completion_objectives = sorted(
+        set(definition.completion_policy.objective_ids) - objectives
+    )
+    if unknown_completion_objectives:
+        errors.append(
+            "completion_policy references unknown objective(s): "
+            + ", ".join(unknown_completion_objectives)
+        )
+
+    for item in definition.content_items:
+        unknown_roles = sorted(set(item.visibility) - roles.keys())
+        if unknown_roles:
+            errors.append(
+                f"content item {item.key!r} references unknown role(s): {', '.join(unknown_roles)}"
+            )
+        unknown_sources = sorted(set(item.source_refs) - sources)
+        if unknown_sources:
+            errors.append(
+                f"content item {item.key!r} references unknown source(s): {', '.join(unknown_sources)}"
+            )
+        if item.world_valid_from and item.world_valid_to and item.world_valid_from > item.world_valid_to:
+            errors.append(f"content item {item.key!r} world_valid_from must be <= world_valid_to")
+        for field_name in ("availability_date", "world_valid_from", "world_valid_to"):
+            value = getattr(item, field_name)
+            if value and not historical_period.start <= value <= historical_period.end:
+                errors.append(
+                    f"content item {item.key!r} {field_name} must fall within historical_period"
+                )
+        if (
+            item.availability_date
+            and item.world_valid_from
+            and item.world_valid_from < item.availability_date
+        ):
+            errors.append(
+                f"content item {item.key!r} world_valid_from cannot precede availability_date"
+            )
+
+    for beat in definition.optional_beats:
+        unknown_objectives = sorted(set(beat.objective_ids) - objectives)
+        if unknown_objectives:
+            errors.append(
+                f"optional beat {beat.id!r} references unknown objective(s): "
+                + ", ".join(unknown_objectives)
+            )
+
     if errors:
         raise ValueError("; ".join(errors))

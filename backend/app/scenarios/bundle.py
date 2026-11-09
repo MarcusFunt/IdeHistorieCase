@@ -1,11 +1,16 @@
 """Byte-exact content hash for a manifest plus its authored research sidecars."""
 import hashlib
 from pathlib import Path
+from typing import Mapping
 
 MAX_BUNDLE_BYTES = 32 * 1024 * 1024
 
 
-def scenario_bundle_hash(manifest_path: str | Path, manifest_bytes: bytes) -> str | None:
+def scenario_bundle_hash(
+    manifest_path: str | Path,
+    manifest_bytes: bytes,
+    additional_files: Mapping[str, bytes] | None = None,
+) -> str | None:
     manifest = Path(manifest_path)
     root = manifest.parent
     files: dict[str, bytes] = {manifest.name: manifest_bytes}
@@ -18,6 +23,14 @@ def scenario_bundle_hash(manifest_path: str | Path, manifest_bytes: bytes) -> st
         for path in sources.rglob("*.yaml"):
             if path.is_file():
                 files[path.relative_to(root).as_posix()] = path.read_bytes()
+    for relative_path, content in (additional_files or {}).items():
+        path = Path(relative_path)
+        if path.is_absolute() or ".." in path.parts or "\\" in relative_path:
+            raise ValueError(f"unsafe scenario bundle path: {relative_path!r}")
+        normalized = path.as_posix()
+        if normalized in files and files[normalized] != content:
+            raise ValueError(f"conflicting scenario bundle file: {relative_path!r}")
+        files[normalized] = content
     if len(files) == 1:
         return None
     if sum(len(content) for content in files.values()) > MAX_BUNDLE_BYTES:
