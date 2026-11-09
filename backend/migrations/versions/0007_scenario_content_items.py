@@ -120,10 +120,14 @@ def upgrade() -> None:
             actual_count integer;
         BEGIN
             IF NEW.schema_version = 2 THEN
-                IF NEW.definition IS NULL OR jsonb_typeof(NEW.definition->'content_items') <> 'array' THEN
+                IF NEW.definition IS NULL
+                   OR jsonb_typeof(NEW.definition->'content_items') IS DISTINCT FROM 'array' THEN
                     RAISE EXCEPTION 'schema-v2 scenario manifest must declare content_items';
                 END IF;
                 expected_count := jsonb_array_length(NEW.definition->'content_items');
+                IF expected_count < 1 THEN
+                    RAISE EXCEPTION 'schema-v2 scenario content item set must not be empty';
+                END IF;
                 SELECT count(*) INTO actual_count
                 FROM scenario_content_items
                 WHERE scenario_version_id = NEW.id;
@@ -147,6 +151,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    has_v2_releases = op.get_bind().exec_driver_sql(
+        "SELECT EXISTS (SELECT 1 FROM scenario_versions WHERE schema_version = 2)"
+    ).scalar_one()
+    if has_v2_releases:
+        raise RuntimeError(
+            "cannot drop scenario_content_items while schema-v2 releases exist; "
+            "back up and remove those releases before retrying the downgrade"
+        )
     op.execute("DROP TRIGGER IF EXISTS trg_scenario_version_content_complete ON scenario_versions")
     op.execute("DROP FUNCTION IF EXISTS verify_v2_content_item_set()")
     op.execute("DROP TRIGGER IF EXISTS trg_scenario_content_item_immutable ON scenario_content_items")

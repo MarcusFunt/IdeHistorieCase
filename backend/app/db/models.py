@@ -42,9 +42,12 @@ class ScenarioVersion(Base):
     __table_args__ = (
         UniqueConstraint("slug", "version"),
         CheckConstraint(
-            "schema_version IS DISTINCT FROM 2 OR "
-            "(jsonb_typeof(definition->'content_items') = 'array' "
-            "AND jsonb_array_length(definition->'content_items') > 0)",
+            "CASE "
+            "WHEN schema_version IS DISTINCT FROM 2 THEN true "
+            "WHEN definition IS NULL THEN false "
+            "WHEN NOT (definition ? 'content_items') THEN false "
+            "WHEN jsonb_typeof(definition->'content_items') IS DISTINCT FROM 'array' THEN false "
+            "ELSE jsonb_array_length(definition->'content_items') > 0 END",
             name="ck_scenario_v2_manifest_nonempty_content_items",
         ),
         Index("uq_scenario_versions_active_slug", "slug", unique=True, postgresql_where=text("is_active")),

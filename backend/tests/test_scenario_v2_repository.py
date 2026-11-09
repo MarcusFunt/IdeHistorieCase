@@ -334,12 +334,16 @@ async def test_sql_guard_rejects_content_metadata_that_disagrees_with_manifest(t
         assert await db.get(ScenarioVersion, version_id) is None
 
 
-async def test_sql_guard_rejects_empty_v2_content_manifest(tmp_path):
+@pytest.mark.parametrize("manifest_items", ["empty", "missing"])
+async def test_sql_guard_rejects_empty_or_missing_v2_content_manifest(tmp_path, manifest_items):
     path, version = copy_release(tmp_path)
     loaded = load_scenario(path)
     version_id = uuid4()
     invalid_definition = loaded.definition.model_dump(mode="json")
-    invalid_definition["content_items"] = []
+    if manifest_items == "empty":
+        invalid_definition["content_items"] = []
+    else:
+        invalid_definition.pop("content_items")
 
     with pytest.raises(DBAPIError, match="ck_scenario_v2_manifest_nonempty_content_items"):
         async with session_factory() as db, db.begin():

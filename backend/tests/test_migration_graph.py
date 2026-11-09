@@ -12,7 +12,8 @@ def test_migration_graph_has_one_linear_head() -> None:
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0009_content_item_hash_guard"]
+    assert scripts.get_heads() == ["0010_manifest_guard"]
+    assert scripts.get_revision("0010_manifest_guard").down_revision == "0009_content_item_hash_guard"
     assert scripts.get_revision("0009_content_item_hash_guard").down_revision == "0008_scenario_content_guards"
     assert scripts.get_revision("0008_scenario_content_guards").down_revision == "0007_scenario_content_items"
     assert scripts.get_revision("0007_scenario_content_items").down_revision == "0006_history_authentic"
