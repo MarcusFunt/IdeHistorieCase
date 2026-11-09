@@ -211,7 +211,9 @@ def _load_sidecar(path: Path) -> dict[str, Any]:
     return documents[0]
 
 
-def _validate_sidecar_identity(sidecar: dict[str, Any], definition: ScenarioDefinition) -> None:
+def _validate_sidecar_identity(
+    sidecar: dict[str, Any], definition: ScenarioDefinition | ScenarioDefinitionV2
+) -> None:
     policy_version = sidecar.get("policy_version")
     if (
         sidecar.get("scenario_slug") != definition.slug
@@ -316,7 +318,9 @@ def _load_behavior_rules(path: Path, definition: ScenarioDefinition) -> dict[str
     return rules
 
 
-def _load_evidence_policy(path: Path, definition: ScenarioDefinition) -> dict[str, Any]:
+def _load_evidence_policy(
+    path: Path, definition: ScenarioDefinition | ScenarioDefinitionV2
+) -> dict[str, Any]:
     policy = _load_sidecar(path)
     _validate_sidecar_identity(policy, definition)
     if not isinstance(policy.get("citation_ready"), bool):
@@ -373,18 +377,22 @@ def load_scenario(path: str | Path) -> LoadedScenario:
     loaded = load_scenario_text(text, manifest_path)
     if isinstance(loaded.definition, ScenarioDefinitionV2):
         content_items, content_files = _read_v2_content_files(manifest_path, loaded.definition)
-        unsupported_sidecars = [
-            manifest_path.with_name(f"{manifest_path.stem}_behaviors.yaml"),
-            manifest_path.with_name(f"{manifest_path.stem}_evidence.yaml"),
-        ]
-        if any(sidecar.exists() for sidecar in unsupported_sidecars):
-            raise ValueError("schema v2 does not support v1 behavior/evidence sidecars")
+        behavior_path = manifest_path.with_name(f"{manifest_path.stem}_behaviors.yaml")
+        if behavior_path.exists():
+            raise ValueError("schema v2 does not support v1 behavior sidecars")
+        evidence_path = manifest_path.with_name(f"{manifest_path.stem}_evidence.yaml")
+        evidence_policy = (
+            _load_evidence_policy(evidence_path, loaded.definition)
+            if evidence_path.exists()
+            else None
+        )
         return LoadedScenario(
             loaded.definition,
             loaded.initial_state,
             loaded.content_hash,
             manifest_path,
             scenario_bundle_hash(manifest_path, content, content_files),
+            evidence_policy=evidence_policy,
             content_items=content_items,
         )
     behavior_path = manifest_path.with_name(f"{manifest_path.stem}_behaviors.yaml")

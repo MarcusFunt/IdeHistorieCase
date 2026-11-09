@@ -16,6 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.connection import session_factory
 from app.db.models import CommittedTurn, GameSession, ScenarioVersion, TurnRequest
 from app.scenarios.repository import get_active_scenario
+from app.scenarios.runtime_compatibility import (
+    ScenarioRuntimeIncompatible,
+    require_runtime_compatible,
+)
+from app.scenarios.schema import ScenarioDefinition
+from app.scenarios.schema_v2 import ScenarioDefinitionV2
+from app.scenarios.validation import validate_definition, validate_v2_definition
 
 router = APIRouter(prefix="/api/v1")
 bearer = HTTPBearer(auto_error=False)
@@ -93,9 +100,10 @@ async def list_scenarios():
             result.append({
                 "slug": row.slug,
                 "version": row.version,
+                "schema_version": row.schema_version,
                 "title": metadata.get("title"),
                 "summary": metadata.get("summary"),
-                "default_language": metadata.get("default_language"),
+                "default_language": metadata.get("default_language") or metadata.get("language"),
                 "supported_roles": [
                     role["id"] for role in definition.get("roles", []) if role.get("playable")
                 ] if definition else [],
@@ -117,18 +125,38 @@ async def get_scenario(slug: str):
                 detail="Active scenario version is an unauthored legacy stub and is not playable",
             )
         definition = scenario.definition
-        return {
+        common = {
             "slug": scenario.slug,
             "version": scenario.version,
+            "schema_version": scenario.schema_version,
             "metadata": definition["metadata"],
             "historical_context": definition["historical_context"],
             "actors": definition["actors"],
             "roles": [role for role in definition["roles"] if role["playable"]],
             "default_role_id": definition["default_role_id"],
             "learning_objectives": definition["learning_objectives"],
-            "phases": definition["phases"],
-            "dilemmas": definition["dilemmas"],
         }
+        if scenario.schema_version == 1:
+            try:
+                parsed = ScenarioDefinition.model_validate(definition)
+                validate_definition(parsed)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail="Active scenario definition is invalid") from exc
+            return {**common, "phases": definition["phases"], "dilemmas": definition["dilemmas"]}
+        if scenario.schema_version == 2:
+            try:
+                parsed = ScenarioDefinitionV2.model_validate(definition)
+                validate_v2_definition(parsed)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail="Active scenario definition is invalid") from exc
+            return {
+                **common,
+                "chronology": definition["chronology"],
+                "interaction_guidance": definition["interaction_guidance"],
+                "completion_policy": definition["completion_policy"],
+                "optional_beats": definition["optional_beats"],
+            }
+        raise HTTPException(status_code=409, detail="Active scenario schema version is unsupported")
 
 
 @router.post("/sessions", status_code=201)
@@ -141,6 +169,10 @@ async def create_session(payload: CreateSession):
                 raise HTTPException(status_code=404, detail="Scenario not found")
             player_role_id = None
             if scenario.definition is not None:
+                try:
+                    require_runtime_compatible(scenario)
+                except ScenarioRuntimeIncompatible as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
                 playable_roles = {
                     role["id"] for role in scenario.definition["roles"] if role["playable"]
                 }
