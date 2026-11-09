@@ -43,6 +43,32 @@ jobs:
           version: "0.13.5"
       - name: Install backend with test dependencies
         run: uv sync --frozen --project backend --extra dev
+      - name: Verify installed wheel includes runtime context service
+        run: |
+          set -eu
+          wheel_dir="$(mktemp -d)"
+          install_dir="$(mktemp -d)"
+          uv build --wheel --python 3.13 --project backend --out-dir "$wheel_dir"
+          uv venv "$install_dir/venv" --python 3.13
+          wheel_file="$(find "$wheel_dir" -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel_file"
+          uv pip install --python "$install_dir/venv/bin/python" "$wheel_file"
+          (
+            cd "$install_dir"
+            "$install_dir/venv/bin/python" - <<'PY'
+          import sys
+          from pathlib import Path
+
+          from app.runtime import context
+          from app.runtime.context import build_session_context
+
+          module_path = Path(context.__file__).resolve()
+          assert Path(sys.prefix).resolve() in module_path.parents, module_path
+          assert (module_path.parent / "__init__.py").is_file()
+          assert callable(build_session_context)
+          print(f"Installed runtime context from {module_path}")
+          PY
+          )
       - name: Validate authored scenario manifests
         run: uv run --locked --project backend python -m app.scenarios.cli validate-all scenarios
       - name: Verify authored scenario bundle pins
