@@ -128,7 +128,17 @@ class PostgresRagRepository:
             )
         )
         if context.actor_id is not None:
-            statement = statement.where(HistoricalPassage.actor_ids.contains([context.actor_id]))
+            actor_clause = HistoricalPassage.actor_ids.contains([context.actor_id])
+            if context.mode == "postgame":
+                actor_clause = or_(
+                    actor_clause,
+                    and_(
+                        HistoricalPassage.postgame_only.is_(True),
+                        HistoricalPassage.visibility_scope == "postgame",
+                        HistoricalPassage.actor_ids == [],
+                    ),
+                )
+            statement = statement.where(actor_clause)
         else:
             # Actorless results are allowed only for an explicitly public postgame view.
             statement = statement.where(

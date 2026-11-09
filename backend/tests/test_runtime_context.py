@@ -1,4 +1,5 @@
 """Pinned, role-aware scenario context and evidence eligibility contracts."""
+import json
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
@@ -10,8 +11,17 @@ import yaml
 
 from app.db.models import ScenarioContentItem, ScenarioVersion
 from app.rag.policy import EvidenceContext, EvidencePassage, PassageApproval, is_eligible
-from app.rag.retrieval import RAG_NO_EVIDENCE, RagSearchService, SearchCandidate
-from app.runtime.context import build_session_context
+from app.rag.retrieval import RagSearchService, SearchCandidate
+from app.runtime.context import (
+    EVIDENCE_EXCLUDED_BY_BUDGET,
+    EVIDENCE_INCLUDED,
+    EVIDENCE_NO_ELIGIBLE_SOURCES,
+    EVIDENCE_NO_RELEVANT_PASSAGES,
+    EVIDENCE_RETRIEVAL_FAILURE,
+    ContextBudget,
+    ContextBuildFailure,
+    build_session_context,
+)
 from app.scenarios.schema_v2 import ScenarioDefinitionV2
 from app.scenarios.validation import validate_v2_definition
 
@@ -40,6 +50,16 @@ def definition(source_ids: list[str] | None = None) -> ScenarioDefinitionV2:
             "title": "Observatør",
             "playable": False,
             "introduction": "En rolle, som ikke er valgt i denne session.",
+            "knowledge_constraints": [],
+        }
+    )
+    raw["roles"].append(
+        {
+            "id": "worker",
+            "actor_id": "factory_worker",
+            "title": "Arbejder",
+            "playable": True,
+            "introduction": "Du beskriver egne erfaringer.",
             "knowledge_constraints": [],
         }
     )
@@ -149,7 +169,7 @@ class _FakeRetrievalRepository:
         ]
 
 
-def evidence_policy() -> dict:
+def evidence_policy(source_ids: list[str] | None = None) -> dict:
     entries = [
         ("R01", "1888-04-30", ["factory_owner"]),
         ("R02", "1888-06-01", ["factory_owner"]),
@@ -157,18 +177,30 @@ def evidence_policy() -> dict:
         ("R04", "1888-04-20", ["factory_owner"]),
         ("R05", "postgame", []),
         ("R06", "1888-04-20", ["factory_owner"]),
+        ("R07", "1888-04-20", ["factory_worker"]),
+        ("R08", "1888-04-20", ["factory_owner"]),
     ]
     return {
+        "scenario_slug": "industrial-inquiry",
+        "scenario_version": "1.0",
+        "policy_version": 1,
         "citation_ready": True,
         "source_access": [
             {
                 "source_id": source_id,
                 "in_world_available_from": available,
-                "scope": "postgame_only" if available == "postgame" else "period_statement_paraphrase_only",
+                "scope": (
+                    "postgame_only"
+                    if available == "postgame"
+                    else "confidential_council_record"
+                    if source_id == "R07"
+                    else "period_statement_paraphrase_only"
+                ),
                 "actor_ids": actor_ids,
                 "citation_ready": source_id == "R01",
             }
             for source_id, available, actor_ids in entries
+            if source_ids is None or source_id in source_ids
         ],
     }
 
@@ -220,6 +252,8 @@ def prepared_context(
     state: dict | None = None,
 ):
     definition_ = definition(source_ids)
+    if policy is None and source_ids:
+        policy = evidence_policy(source_ids)
     bodies = bodies or {
         item.key: "Forfatterbriefing, adskilt fra historisk kildebelæg."
         for item in definition_.content_items
@@ -288,7 +322,10 @@ async def test_initialization_uses_release_opening_and_only_current_role_notes()
     definition_ = ScenarioDefinitionV2.model_validate(raw)
     validate_v2_definition(definition_)
     bodies = {item.key: item.key for item in definition_.content_items}
-    db = _FakeDb(scenario_row(definition_), content_rows(definition_, bodies))
+    db = _FakeDb(
+        scenario_row(definition_, evidence_policy(source_ids)),
+        content_rows(definition_, bodies),
+    )
     session = SimpleNamespace(
         scenario_version_id=RELEASE_ID,
         player_role_id="investigator",
@@ -311,7 +348,10 @@ async def test_initialization_uses_release_opening_and_only_current_role_notes()
     assert context.payload["chronology"]["max_days_per_advance"] == 7
     assert [note["item_key"] for note in context.payload["author_notes"]] == ["site_briefing"]
     assert context.payload["author_notes"][0]["trust_category"] == "author_context_not_historical_evidence"
-    assert context.evidence_status == RAG_NO_EVIDENCE
+    assert context.payload["author_notes"][0]["source_refs"] == ["R01"]
+    assert context.payload["author_notes"][0]["source_refs_are_not_evidence"] is True
+    assert context.payload["author_notes"][0]["claim_verification_status"] == "not_assessed"
+    assert context.evidence_status == EVIDENCE_NO_RELEVANT_PASSAGES
     assert embedder.calls == 0
 
 
@@ -358,8 +398,8 @@ async def test_later_turn_uses_persisted_world_date_and_date_valid_notes():
 
 @pytest.mark.asyncio
 async def test_retrieval_excludes_future_wrong_actor_unapproved_and_rights_pending_passages():
-    policy = evidence_policy()
     ids = [f"R0{i}" for i in range(1, 7)]
+    policy = evidence_policy(ids)
     candidates = [
         passage_candidate("R01", document_date=date(1888, 4, 30), available_from=date(1888, 4, 30)),
         passage_candidate("R02", document_date=date(1888, 6, 1), available_from=date(1888, 6, 1)),
@@ -390,9 +430,11 @@ async def test_retrieval_excludes_future_wrong_actor_unapproved_and_rights_pendi
     )
 
     passages = context.payload["evidence"]["passages"]
-    assert context.evidence_status == "available"
+    assert context.evidence_status == EVIDENCE_INCLUDED
     assert [passage["source_identifier"] for passage in passages] == ["R01"]
     assert passages[0]["citation_ready"] is True
+    assert passages[0]["source_citation_ready"] is True
+    assert passages[0]["claim_verification_status"] == "not_assessed"
     assert passages[0]["trust_category"] == "historical_evidence"
 
 
@@ -405,7 +447,7 @@ async def test_postgame_passages_are_available_only_in_postgame_context():
         postgame_only=True,
         visibility_scope="postgame",
     )
-    policy = evidence_policy()
+    policy = evidence_policy(["R05"])
     db, session, rag, _ = prepared_context(
         source_ids=["R05"],
         candidates=[postgame],
@@ -430,10 +472,134 @@ async def test_postgame_passages_are_available_only_in_postgame_context():
         retrieval_service=rag,
     )
 
-    assert historical_reflection.evidence_status == "available"
+    assert historical_reflection.evidence_status == EVIDENCE_INCLUDED
     assert [item["source_identifier"] for item in historical_reflection.payload["evidence"]["passages"]] == ["R05"]
-    assert in_world.evidence_status == RAG_NO_EVIDENCE
+    assert in_world.evidence_status == EVIDENCE_NO_ELIGIBLE_SOURCES
     assert in_world.payload["evidence"]["passages"] == []
+
+
+@pytest.mark.asyncio
+async def test_postgame_keeps_role_identity_and_allows_only_authorized_retrospective_sources():
+    policy = evidence_policy(["R03", "R05", "R07"])
+    candidates = [
+        passage_candidate(
+            "R03",
+            actor_ids=("factory_worker",),
+            document_date=date(1888, 6, 1),
+            available_from=date(1888, 4, 20),
+        ),
+        passage_candidate(
+            "R05",
+            actor_ids=(),
+            document_date=date(1889, 1, 1),
+            available_from=None,
+            postgame_only=True,
+            visibility_scope="postgame",
+        ),
+        passage_candidate(
+            "R07",
+            actor_ids=("factory_worker",),
+            document_date=date(1888, 6, 1),
+            available_from=date(1888, 4, 20),
+            visibility_scope="confidential",
+        ),
+    ]
+    db, owner_session, rag, _ = prepared_context(
+        source_ids=["R03", "R05", "R07"],
+        candidates=candidates,
+        policy=policy,
+        state={"world_date": "1888-05-01"},
+    )
+    worker_session = SimpleNamespace(
+        scenario_version_id=owner_session.scenario_version_id,
+        player_role_id="worker",
+        state=dict(owner_session.state),
+    )
+
+    owner = await build_session_context(
+        db,
+        owner_session,
+        stage="turn",
+        query="historical comparison",
+        mode="postgame",
+        retrieval_service=rag,
+    )
+    worker = await build_session_context(
+        db,
+        worker_session,
+        stage="turn",
+        query="historical comparison",
+        mode="postgame",
+        retrieval_service=rag,
+    )
+    worker_gameplay = await build_session_context(
+        db,
+        worker_session,
+        stage="turn",
+        query="historical comparison",
+        mode="gameplay",
+        retrieval_service=rag,
+    )
+
+    assert owner.payload["selected_role"]["actor_id"] == "factory_owner"
+    assert [item["source_identifier"] for item in owner.payload["evidence"]["passages"]] == ["R05"]
+    assert [item["source_identifier"] for item in worker.payload["evidence"]["passages"]] == [
+        "R03",
+        "R05",
+        "R07",
+    ]
+    assert worker_gameplay.payload["evidence"]["passages"] == []
+    assert "efterrefleksion" in worker.payload["constraints"][-1]
+
+
+@pytest.mark.asyncio
+async def test_evidence_status_distinguishes_missing_sources_from_no_relevant_passages():
+    db, session, rag, _ = prepared_context(
+        source_ids=["R01"],
+        candidates=[],
+        state={"world_date": "1888-05-01"},
+    )
+
+    context = await build_session_context(
+        db,
+        session,
+        stage="turn",
+        query="a query with no indexed match",
+        retrieval_service=rag,
+    )
+
+    assert context.evidence_status == EVIDENCE_NO_RELEVANT_PASSAGES
+    assert context.metadata["evidence"]["eligible_source_count"] == 1
+    assert context.metadata["evidence"]["retrieved_passage_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_postgame_still_enforces_source_policy_actor_allowlist():
+    candidate = passage_candidate(
+        "R08",
+        actor_ids=("factory_worker",),
+        document_date=date(1888, 4, 20),
+        available_from=date(1888, 4, 20),
+    )
+    db, session, rag, _ = prepared_context(
+        source_ids=["R08"],
+        candidates=[candidate],
+        policy=evidence_policy(["R08"]),
+        state={"world_date": "1888-05-01"},
+    )
+    session.player_role_id = "worker"
+
+    context = await build_session_context(
+        db,
+        session,
+        stage="turn",
+        query="historical comparison",
+        mode="postgame",
+        retrieval_service=rag,
+    )
+
+    assert context.evidence_status == EVIDENCE_NO_RELEVANT_PASSAGES
+    assert context.payload["evidence"]["passages"] == []
 
 
 @pytest.mark.asyncio
@@ -447,8 +613,11 @@ async def test_no_evidence_is_explicit_and_does_not_call_the_embedding_service()
         retrieval_service=rag,
     )
 
-    assert context.evidence_status == RAG_NO_EVIDENCE
-    assert context.payload["evidence"] == {"status": RAG_NO_EVIDENCE, "passages": []}
+    assert context.evidence_status == EVIDENCE_NO_ELIGIBLE_SOURCES
+    assert context.payload["evidence"] == {
+        "status": EVIDENCE_NO_ELIGIBLE_SOURCES,
+        "passages": [],
+    }
     assert embedder.calls == 0
 
 
@@ -478,6 +647,7 @@ async def test_context_budget_is_deterministic_and_keeps_critical_constraints():
     assert first.serialized_chars <= 5000
     assert first.payload == second.payload
     assert first.truncated_note_keys == ("site_briefing",)
+    assert first.metadata["budget"]["truncated_author_note_keys"] == ["site_briefing"]
     assert "kontrafaktisk" in first.payload["historical_context"]["counterfactual_disclaimer"]
     assert first.payload["constraints"]
 
@@ -495,7 +665,7 @@ async def test_context_budget_keeps_later_short_evidence_after_omitting_oversize
             ),
             passage_candidate("R04"),
         ],
-        policy=evidence_policy(),
+        policy=evidence_policy(["R01", "R04"]),
         state={"world_date": "1888-05-01"},
     )
     context = await build_session_context(
@@ -507,10 +677,106 @@ async def test_context_budget_keeps_later_short_evidence_after_omitting_oversize
         max_chars=5000,
     )
 
-    assert context.evidence_status == "available"
+    assert context.evidence_status == EVIDENCE_INCLUDED
     assert [item["source_identifier"] for item in context.payload["evidence"]["passages"]] == ["R04"]
     assert context.omitted_evidence_count == 1
+    assert context.omitted_evidence_keys == ("passage_r01",)
+    assert context.metadata["evidence"]["omitted_passage_count"] == 1
     assert context.serialized_chars <= 5000
+
+
+@pytest.mark.asyncio
+async def test_large_passage_is_excluded_whole_and_tiny_budget_fails_with_metadata():
+    db, session, rag, _ = prepared_context(
+        source_ids=["R01"],
+        candidates=[
+            passage_candidate(
+                "R01",
+                text="historically meaningful full passage " * 350,
+                document_date=date(1888, 4, 30),
+                available_from=date(1888, 4, 30),
+            )
+        ],
+        state={"world_date": "1888-05-01"},
+    )
+    bounded = await build_session_context(
+        db,
+        session,
+        stage="turn",
+        query="arbejdsvilkår",
+        retrieval_service=rag,
+        budget=ContextBudget(max_chars=5000, top_k=1),
+    )
+
+    assert bounded.evidence_status == EVIDENCE_EXCLUDED_BY_BUDGET
+    assert bounded.payload["evidence"]["passages"] == []
+    assert bounded.omitted_evidence_count == 1
+    assert bounded.omitted_evidence_keys == ("passage_r01",)
+
+    with pytest.raises(ContextBuildFailure, match="too small") as failure:
+        await build_session_context(
+            db,
+            session,
+            stage="turn",
+            query="",
+            retrieval_service=rag,
+            budget=ContextBudget(max_chars=100),
+        )
+    assert failure.value.status == "validation_failure"
+    assert failure.value.as_metadata()["status"] == "validation_failure"
+
+
+@pytest.mark.asyncio
+async def test_retrieval_failure_is_structured_and_does_not_mutate_session_state():
+    class BrokenRetrieval:
+        async def search(self, *_args, **_kwargs):
+            raise RuntimeError("fixture retrieval outage")
+
+    db, session, _, _ = prepared_context(
+        source_ids=["R01"],
+        state={"world_date": "1888-05-01", "progress": 2},
+    )
+    before = dict(session.state)
+
+    with pytest.raises(ContextBuildFailure) as failure:
+        await build_session_context(
+            db,
+            session,
+            stage="turn",
+            query="a historical query",
+            retrieval_service=BrokenRetrieval(),
+        )
+
+    assert failure.value.status == EVIDENCE_RETRIEVAL_FAILURE
+    assert failure.value.as_metadata() == {
+        "status": EVIDENCE_RETRIEVAL_FAILURE,
+        "diagnostic": "historical evidence retrieval failed",
+    }
+    assert session.state == before
+
+
+@pytest.mark.asyncio
+async def test_inference_contract_is_json_serializable_and_keeps_context_metadata():
+    db, session, rag, _ = prepared_context(state={"world_date": "1888-05-10", "turn": 3})
+    before = dict(session.state)
+    context = await build_session_context(
+        db,
+        session,
+        stage="turn",
+        query="",
+        mode="gameplay",
+        retrieval_service=rag,
+    )
+
+    inference_input = context.to_inference_input(current_state=session.state)
+
+    assert inference_input["stage"] == "turn"
+    assert inference_input["generation_mode"] == "gameplay"
+    assert inference_input["current_state"] == before
+    assert inference_input["context"] == context.payload
+    assert inference_input["context_metadata"] == context.metadata
+    assert json.loads(json.dumps(inference_input, ensure_ascii=False)) == inference_input
+    assert session.state == before
 
 
 @pytest.mark.asyncio
@@ -562,7 +828,7 @@ async def test_context_rejects_nonplayable_role_and_tampered_sql_content():
 
     session.player_role_id = "investigator"
     db.rows[0].body = "ændret efter import"
-    with pytest.raises(ValueError, match="does not match its manifest"):
+    with pytest.raises(ValueError, match="does not match"):
         await build_session_context(
             db,
             session,
