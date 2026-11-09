@@ -12,7 +12,8 @@ def test_migration_graph_has_one_linear_head() -> None:
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0006_history_authentic"]
+    assert scripts.get_heads() == ["0007_scenario_content_items"]
+    assert scripts.get_revision("0007_scenario_content_items").down_revision == "0006_history_authentic"
     assert scripts.get_revision("0006_history_authentic").down_revision == "0005_historical_rag"
     assert scripts.get_revision("0005_historical_rag").down_revision == "0004_multiple_events_per_turn"
 
