@@ -1,21 +1,23 @@
 """PostgreSQL API contract for scenario discovery and role-aware sessions."""
 import os
+import shutil
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.db.connection import engine, session_factory
-from app.db.models import CommittedTurn, GameEvent, GameSession, TurnRequest
+from app.db.models import CommittedTurn, GameEvent, GameSession, ScenarioVersion, TurnRequest
 from app.main import app
 from app.scenarios.loader import load_scenario
 from app.scenarios.repository import activate_scenario_version, import_scenario
 
 pytestmark = pytest.mark.skipif(os.getenv("DDU_TEST_DB") != "1", reason="Postgres not configured")
 MANIFEST = Path(__file__).parents[2] / "scenarios" / "versailles-1919" / "2.5.yaml"
+MANIFEST_V2 = Path(__file__).parents[2] / "scenarios" / "versailles-1919" / "3.0-ai.yaml"
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -119,3 +121,50 @@ async def test_sessions_resolve_active_version_role_and_keep_old_pin(scenario_cl
     assert resumed_new.json()["scenario"] == "versailles-1919"
     assert resumed_new.json()["scenario_version"] == "2.5"
     assert resumed_new.json()["player_role_id"] == "british_adviser"
+
+
+async def test_active_v2_metadata_is_schema_aware_but_session_creation_is_blocked(
+    scenario_client, tmp_path
+):
+    bundle = tmp_path / "versailles-1919"
+    bundle.mkdir()
+    shutil.copy2(MANIFEST_V2, bundle / MANIFEST_V2.name)
+    shutil.copytree(MANIFEST_V2.parent / "notes", bundle / "notes")
+    v2_version = f"api-test-{uuid4().hex[:12]}"
+    path = bundle / MANIFEST_V2.name
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'version: "3.0-ai"', f'version: "{v2_version}"'
+        ),
+        encoding="utf-8",
+    )
+    async with session_factory() as db, db.begin():
+        imported = await import_scenario(db, load_scenario(path))
+        await db.execute(
+            update(ScenarioVersion)
+            .where(ScenarioVersion.slug == "versailles-1919")
+            .values(is_active=False)
+        )
+        imported.scenario.is_active = True
+
+    listing = await scenario_client.get("/api/v1/scenarios")
+    v2_row = next(
+        row for row in listing.json()
+        if row["slug"] == "versailles-1919" and row["version"] == v2_version
+    )
+    assert v2_row["schema_version"] == 2
+    assert v2_row["default_language"] == "da"
+    assert v2_row["supported_roles"] == ["british_adviser"]
+
+    detail = await scenario_client.get("/api/v1/scenarios/versailles-1919")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["version"] == v2_version
+    assert body["schema_version"] == 2
+    assert body["metadata"]["language"] == "da"
+    assert body["chronology"]["opening_date"] == "1919-04-01"
+    assert "phases" not in body and "dilemmas" not in body
+
+    create = await scenario_client.post("/api/v1/sessions", json={"scenario": "versailles-1919"})
+    assert create.status_code == 409
+    assert "runtime" in create.json()["detail"].lower()

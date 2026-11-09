@@ -4,14 +4,26 @@ import asyncio
 import json
 import re
 import sys
-from hashlib import sha256
+from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.connection import session_factory
-from app.db.models import ScenarioContentItem, ScenarioVersion
+from app.db.models import (
+    HistoricalPassage,
+    HistoricalPassageReview,
+    RagScenarioPolicy,
+    ScenarioContentItem,
+    ScenarioVersion,
+)
+from app.scenarios.content_integrity import (
+    ScenarioContentIntegrityError,
+    verify_v2_content_rows,
+)
+from app.scenarios.evidence import VALID_SCOPES
 from app.scenarios.loader import load_scenario, validate_all
 from app.scenarios.repository import (
     ScenarioVersionNotFound,
@@ -21,6 +33,7 @@ from app.scenarios.repository import (
     list_scenario_versions,
     scenario_matches_loaded,
 )
+from app.scenarios.runtime_compatibility import runtime_compatibility
 from app.scenarios.schema import ScenarioDefinition
 from app.scenarios.schema_v2 import ScenarioDefinitionV2
 from app.scenarios.validation import validate_definition, validate_v2_definition
@@ -32,6 +45,7 @@ def _parser() -> argparse.ArgumentParser:
 
     validate = commands.add_parser("validate", help="validate one manifest without a database")
     validate.add_argument("path", type=Path)
+    validate.add_argument("--json", action="store_true", help="emit a machine-readable validation report")
     validate_many = commands.add_parser("validate-all", help="validate manifests in a directory")
     validate_many.add_argument("directory", type=Path)
     preview = commands.add_parser("preview", help="preview a validated release without a database")
@@ -54,13 +68,13 @@ def _parser() -> argparse.ArgumentParser:
     show = commands.add_parser("show", help="inspect one imported version")
     show.add_argument("slug")
     show.add_argument("--version", required=True)
-    playable = commands.add_parser(
-        "playable-check",
-        aliases=["check-playable"],
-        help="check an imported release and its SQL-backed content",
+    readiness = commands.add_parser(
+        "readiness",
+        aliases=["playable-check", "check-playable"],
+        help="report schema, publication, runtime, author, and evidence readiness as JSON",
     )
-    playable.add_argument("slug")
-    playable.add_argument("--version", required=True)
+    readiness.add_argument("slug")
+    readiness.add_argument("--version", required=True)
     return parser
 
 
@@ -263,51 +277,225 @@ async def _playable_check_command(slug: str, version: str) -> int:
         ).scalar_one_or_none()
         if scenario is None:
             raise ScenarioVersionNotFound(f"scenario version not found: {slug}@{version}")
+        report = await _readiness_report(db, scenario)
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
+    return 0 if report["playable"] else 1
+
+
+async def _readiness_report(db, scenario: ScenarioVersion) -> dict:
+    definition = None
+    schema_error = None
+    try:
         if scenario.definition is None:
-            raise ValueError(f"{slug}@{version} is an unauthored legacy stub")
-        if scenario.schema_version == 2:
-            definition = ScenarioDefinitionV2.model_validate(scenario.definition)
-            validate_v2_definition(definition)
-            rows = (
-                await db.execute(
-                    select(ScenarioContentItem)
-                    .where(ScenarioContentItem.scenario_version_id == scenario.id)
-                    .order_by(ScenarioContentItem.item_key)
-                )
-            ).scalars().all()
-            expected = {item.key: item for item in definition.content_items}
-            by_key = {row.item_key: row for row in rows}
-            if set(by_key) != set(expected):
-                raise ValueError("SQL content item rows do not match the immutable v2 manifest")
-            for key, item in expected.items():
-                row = by_key[key]
-                if (
-                    row.kind != item.kind
-                    or row.language != definition.metadata.language
-                    or row.authoritative_scope != "author_context"
-                    or row.availability_date != item.availability_date
-                    or row.world_valid_from != item.world_valid_from
-                    or row.world_valid_to != item.world_valid_to
-                    or row.visibility != item.visibility
-                    or row.mode != item.mode
-                    or row.review_status != item.review_status
-                    or row.source_refs != item.source_refs
-                    or row.metadata_json != {"source_file": item.file}
-                    or row.sha256 != sha256(row.body.encode("utf-8")).hexdigest()
-                ):
-                    raise ValueError(f"SQL content item {key!r} does not match the v2 release")
-            print(
-                f"Playable-check passed: {slug}@{version} has a playable default role, "
-                f"authoritative opening date, and {len(rows)} SQL content item(s). "
-                "Evidence readiness is separate and requires eligible approved passages."
-            )
-            return 0
+            raise ValueError("release has no authored definition")
         if scenario.schema_version == 1:
             definition = ScenarioDefinition.model_validate(scenario.definition)
             validate_definition(definition)
-            print(f"Playable-check passed: {slug}@{version} (schema 1 compatibility release).")
-            return 0
-        raise ValueError(f"unsupported stored schema_version: {scenario.schema_version!r}")
+        elif scenario.schema_version == 2:
+            definition = ScenarioDefinitionV2.model_validate(scenario.definition)
+            validate_v2_definition(definition)
+        else:
+            raise ValueError(f"unsupported stored schema_version: {scenario.schema_version!r}")
+    except ValueError as exc:
+        schema_error = str(exc)
+
+    schema_check = {
+        "status": "valid" if definition is not None else "invalid",
+        "error": schema_error,
+    }
+    publication_check = {"status": "not_applicable"}
+    author_check = {"status": "not_applicable"}
+    if scenario.schema_version == 2:
+        publication_check = {"status": "not_established"}
+        author_check = {"status": "not_established"}
+    if definition is not None and scenario.schema_version == 2:
+        rows = (
+            await db.execute(
+                select(ScenarioContentItem)
+                .where(ScenarioContentItem.scenario_version_id == scenario.id)
+                .order_by(ScenarioContentItem.item_key)
+            )
+        ).scalars().all()
+        try:
+            verified_rows = verify_v2_content_rows(scenario, rows)
+            publication_check = {"status": "valid", "content_item_count": len(verified_rows)}
+            draft_keys = sorted(
+                item.key
+                for item in definition.content_items
+                if item.review_status != "author_reviewed"
+            )
+            author_check = {
+                "status": "not_ready" if draft_keys else "ready",
+                "draft_item_keys": draft_keys,
+            }
+        except ScenarioContentIntegrityError as exc:
+            publication_check = {"status": "invalid", "error": str(exc)}
+            author_check = {"status": "not_established"}
+
+    compatibility = runtime_compatibility(scenario)
+    runtime_check = {
+        "status": compatibility.status,
+        "schema_version": compatibility.schema_version,
+        "supported_schema_versions": list(compatibility.supported_schema_versions),
+    }
+    evidence_check = await _evidence_readiness(db, scenario, definition)
+    return {
+        "scenario": {"slug": scenario.slug, "version": scenario.version},
+        "checks": {
+            "schema_valid": schema_check,
+            "publication_integrity": publication_check,
+            "runtime_compatibility": runtime_check,
+            "author_content_readiness": author_check,
+            "evidence_readiness": evidence_check,
+        },
+        "playable": (
+            schema_check["status"] == "valid"
+            and publication_check["status"] in {"valid", "not_applicable"}
+            and runtime_check["status"] == "supported"
+            and author_check["status"] in {"ready", "not_applicable"}
+            and evidence_check["status"] in {"ready", "not_required"}
+        ),
+    }
+
+
+async def _evidence_readiness(db, scenario: ScenarioVersion, definition) -> dict:
+    source_ids: Sequence[str] = getattr(definition, "source_refs", ()) if definition else ()
+    required = set(source_ids)
+    if not required:
+        return {"status": "not_required", "required_source_ids": [], "approved_source_ids": []}
+
+    policy = scenario.evidence_policy
+    entries = policy.get("source_access") if isinstance(policy, dict) else None
+    policy_identity_valid = (
+        isinstance(policy, dict)
+        and policy.get("scenario_slug") == scenario.slug
+        and str(policy.get("scenario_version")) == scenario.version
+        and type(policy.get("policy_version")) is int
+        and isinstance(policy.get("citation_ready"), bool)
+        and isinstance(entries, list)
+    )
+    policy_ids: set[str] = set()
+    blocked_policy_ids: set[str] = set()
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        source_id = entry.get("source_id")
+        availability = entry.get("in_world_available_from")
+        scope = entry.get("scope")
+        actor_ids = entry.get("actor_ids")
+        entry_valid = (
+            isinstance(source_id, str)
+            and bool(source_id)
+            and isinstance(scope, str)
+            and scope in VALID_SCOPES
+            and isinstance(actor_ids, list)
+            and all(isinstance(actor_id, str) and actor_id for actor_id in actor_ids)
+        )
+        if not entry_valid:
+            continue
+        if availability == "blocked":
+            blocked_policy_ids.add(source_id)
+            continue
+        if availability != "postgame":
+            if not isinstance(availability, str):
+                continue
+            try:
+                date.fromisoformat(availability)
+            except ValueError:
+                continue
+        policy_ids.add(source_id)
+    missing_policy_ids = sorted(required - policy_ids)
+    blocked_policy_source_ids = sorted(required & blocked_policy_ids)
+    rag_policy = (
+        await db.execute(
+            select(RagScenarioPolicy.id).where(
+                RagScenarioPolicy.scenario_version_id == scenario.id,
+                RagScenarioPolicy.scenario_slug == scenario.slug,
+                RagScenarioPolicy.scenario_version == scenario.version,
+            )
+        )
+    ).scalar_one_or_none()
+    latest_review = (
+        select(
+            HistoricalPassageReview.passage_id.label("passage_id"),
+            func.max(HistoricalPassageReview.revision).label("revision"),
+        )
+        .group_by(HistoricalPassageReview.passage_id)
+        .subquery()
+    )
+    approved = set(
+        (
+            await db.execute(
+                select(HistoricalPassage.source_identifier)
+                .join(latest_review, latest_review.c.passage_id == HistoricalPassage.id)
+                .join(
+                    HistoricalPassageReview,
+                    (HistoricalPassageReview.passage_id == latest_review.c.passage_id)
+                    & (HistoricalPassageReview.revision == latest_review.c.revision),
+                )
+                .where(
+                    HistoricalPassage.scenario_version_id == scenario.id,
+                    HistoricalPassage.scenario_slug == scenario.slug,
+                    HistoricalPassage.scenario_version == scenario.version,
+                    HistoricalPassage.source_identifier.in_(required),
+                    HistoricalPassageReview.review_status == "approved",
+                    HistoricalPassageReview.rights_status == "approved",
+                )
+            )
+        ).scalars().all()
+    )
+    missing_approved = sorted(required - approved)
+    ready = (
+        policy_identity_valid
+        and not missing_policy_ids
+        and not blocked_policy_source_ids
+        and not missing_approved
+        and rag_policy is not None
+    )
+    return {
+        "status": "ready" if ready else "not_ready",
+        "required_source_ids": sorted(required),
+        "approved_source_ids": sorted(approved),
+        "missing_policy_source_ids": missing_policy_ids,
+        "blocked_policy_source_ids": blocked_policy_source_ids,
+        "missing_approved_source_ids": missing_approved,
+        "source_policy_identity_valid": policy_identity_valid,
+        "rag_policy_present": rag_policy is not None,
+    }
+
+
+def _input_validation_report(loaded) -> dict:
+    definition = loaded.definition
+    compatibility_scenario = type("Scenario", (), {
+        "schema_version": definition.schema_version,
+        "definition": definition.model_dump(mode="json"),
+    })()
+    compatibility = runtime_compatibility(compatibility_scenario)
+    if isinstance(definition, ScenarioDefinitionV2):
+        draft_keys = sorted(
+            item.key for item in definition.content_items if item.review_status != "author_reviewed"
+        )
+        author_status = "not_ready" if draft_keys else "ready"
+    else:
+        draft_keys = []
+        author_status = "not_applicable"
+    return {
+        "scenario": {"slug": definition.slug, "version": definition.version},
+        "checks": {
+            "schema_valid": {"status": "valid"},
+            "publication_integrity": {"status": "database_check_required"},
+            "runtime_compatibility": {
+                "status": compatibility.status,
+                "schema_version": compatibility.schema_version,
+                "supported_schema_versions": list(compatibility.supported_schema_versions),
+            },
+            "author_content_readiness": {"status": author_status, "draft_item_keys": draft_keys},
+            "evidence_readiness": {
+                "status": "database_check_required" if definition.source_refs else "not_required"
+            },
+        },
+        "playable": False,
+    }
 
 
 async def _run_database_command(args) -> int:
@@ -317,7 +505,7 @@ async def _run_database_command(args) -> int:
         return await _activate_command(args.slug, args.version)
     if args.command == "list":
         return await _list_command()
-    if args.command in {"playable-check", "check-playable"}:
+    if args.command in {"readiness", "playable-check", "check-playable"}:
         return await _playable_check_command(args.slug, args.version)
     return await _show_command(args.slug, args.version)
 
@@ -326,7 +514,18 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "validate":
-            print(_summary(load_scenario(args.path)))
+            loaded = load_scenario(args.path)
+            if args.json:
+                print(
+                    json.dumps(
+                        _input_validation_report(loaded),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        indent=2,
+                    )
+                )
+            else:
+                print(_summary(loaded))
             return 0
         if args.command == "preview":
             _preview(load_scenario(args.path))

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ScenarioContentItem, ScenarioVersion
 from app.scenarios.loader import LoadedScenario
+from app.scenarios.runtime_compatibility import require_runtime_compatible
 from app.scenarios.schema_v2 import ScenarioDefinitionV2
 
 
@@ -198,6 +199,8 @@ async def activate_scenario_version(
         raise ScenarioVersionNotFound(
             f"{slug}@{version} is a legacy stub and cannot be activated"
         )
+    if selected.definition is not None:
+        require_runtime_compatible(selected)
 
     for row in versions:
         row.is_active = False
