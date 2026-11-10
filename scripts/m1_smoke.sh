@@ -35,6 +35,11 @@ printf '%s\n' "Checking the app-owned Danish structured-output diagnostic..."
 docker compose --env-file "$BACKEND_ENV" -f "$BACKEND" exec -T \
   turn-worker python -m app.workers.probe
 
-printf '%s\n' "Checking the M2 fake turn and replay without calling the model..."
-python scripts/m2_fake_smoke.py --base-url "http://127.0.0.1:$API_PORT"
+if [ "${CASES_ISOLATED_SMOKE:-0}" = "1" ]; then
+  printf '%s\n' "Running the real v2 gameplay smoke against the declared disposable database..."
+  CASES_SMOKE_BASE_URL=${CASES_SMOKE_BASE_URL:-"http://127.0.0.1:$API_PORT"} \
+    python scripts/ai_gameplay_smoke.py
+else
+  printf '%s\n' "Skipping session-writing gameplay smoke; set CASES_ISOLATED_SMOKE=1 and CASES_SMOKE_DB_NAME for a disposable stack."
+fi
 printf '%s\n' "Backend and external inference smoke checks completed."

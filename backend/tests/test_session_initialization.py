@@ -14,7 +14,13 @@ import yaml
 from sqlalchemy import delete, func, select, update
 
 from app.db.connection import engine, session_factory
-from app.db.models import GameSession, SessionInitializationJob
+from app.db.models import (
+    CommittedTurn,
+    GameEvent,
+    GameSession,
+    SessionInitializationJob,
+    TurnRequest,
+)
 from app.game.initialization import (
     claim_next,
     complete_claim,
@@ -64,6 +70,23 @@ async def v2_client(tmp_path):
     finally:
         if session_ids:
             async with session_factory() as db, db.begin():
+                await db.execute(
+                    delete(GameEvent).where(
+                        GameEvent.committed_turn_id.in_(
+                            select(CommittedTurn.id).where(
+                                CommittedTurn.session_id.in_(session_ids)
+                            )
+                        )
+                    )
+                )
+                await db.execute(
+                    delete(CommittedTurn).where(
+                        CommittedTurn.session_id.in_(session_ids)
+                    )
+                )
+                await db.execute(
+                    delete(TurnRequest).where(TurnRequest.session_id.in_(session_ids))
+                )
                 await db.execute(
                     delete(SessionInitializationJob).where(
                         SessionInitializationJob.session_id.in_(session_ids)
@@ -252,7 +275,7 @@ async def test_concurrent_claims_fence_restarted_worker_and_commit_one_opening(v
     assert len(session_jobs) == 1
 
     turn_id = uuid4()
-    unsupported_turn = await client.post(
+    accepted_turn = await client.post(
         f"/api/v1/sessions/{resumed_claim.session_id}/turns",
         json={
             "client_turn_id": str(turn_id),
@@ -265,7 +288,8 @@ async def test_concurrent_claims_fence_restarted_worker_and_commit_one_opening(v
             "Idempotency-Key": str(turn_id),
         },
     )
-    assert unsupported_turn.status_code == 409
+    assert accepted_turn.status_code == 202
+    assert accepted_turn.json()["status"] == "queued"
 
 
 @pytest.mark.asyncio

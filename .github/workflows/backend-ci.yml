@@ -80,7 +80,7 @@ jobs:
       - name: Ruff
         run: |
           uv run --locked --project backend ruff check backend
-          uv run --locked --project backend ruff check --select E4,E7,E9,F,I scripts/m2_fake_smoke.py backend/tests
+          uv run --locked --project backend ruff check --select E4,E7,E9,F,I scripts backend/tests
       - name: Unit and contract tests
         run: uv run --locked --project backend pytest -q backend/tests -k "not heartbeat_insert_and_update"
       - name: Alembic upgrade
@@ -94,9 +94,13 @@ jobs:
         run: |
           uv run --locked --project . pytest -q tests/test_integration.py
           uv run --locked --project . pytest -q tests/test_m2_integration.py
+          uv run --locked --project . pytest -q tests/test_turn_worker_leases.py
+          uv run --locked --project . pytest -q tests/test_ai_turn_integration.py
+          uv run --locked --project . pytest -q tests/test_session_initialization.py
           uv run --locked --project . pytest -q tests/test_migration_preservation.py
           uv run --locked --project . pytest -q tests/test_scenario_runtime.py
           uv run --locked --project . pytest -q tests/test_scenario_repository.py
+          uv run --locked --project . pytest -q tests/test_scenario_v2_repository.py
           uv run --locked --project . pytest -q tests/test_scenario_cli_db.py
           uv run --locked --project . pytest -q tests/test_scenario_api.py
           uv run --locked --project . pytest -q tests/test_rag_migration.py
@@ -129,7 +133,6 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8000/api/v1/status | python -c 'import json,sys; d=json.load(sys.stdin); assert d["database"] and d["worker"]=="running" and d["inference"]=="degraded", d; print(d)'
-          uv run --locked --project backend python scripts/m2_fake_smoke.py --base-url http://127.0.0.1:8000
       - name: Print container logs on failure
         if: failure()
         run: |

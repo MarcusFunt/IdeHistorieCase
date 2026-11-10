@@ -1,4 +1,4 @@
-"""Independent inference monitor and M2 durable fake-turn worker."""
+"""Inference monitor and durable structured turn and initialization workers."""
 import asyncio
 import logging
 
@@ -11,7 +11,8 @@ from app.core.settings import WORKER_HEALTH_TIMEOUT_SECONDS, get_settings
 from app.db.connection import engine
 from app.db.models import ServiceHeartbeat
 from app.game.turn_worker import run_turn_worker
-from app.workers.initialization import run_initialization_worker
+from app.runtime.orchestrator import TurnOrchestrator
+from app.workers.initialization import build_retrieval_service, run_initialization_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -57,9 +58,29 @@ async def monitor_inference() -> None:
             await asyncio.sleep(settings.worker_poll_seconds)
 
 
+async def run_real_turn_worker() -> None:
+    settings = get_settings()
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.turn_inference_timeout_seconds), trust_env=False
+    ) as http:
+        generator = InferenceClient(
+            settings.llm_base_url,
+            settings.llm_model_alias,
+            http,
+            enable_thinking=settings.llm_enable_thinking,
+        )
+        retrieval_service = build_retrieval_service(settings, http)
+        orchestrator = TurnOrchestrator(
+            generator=generator,
+            retrieval_service=retrieval_service,
+            settings=settings,
+        )
+        await run_turn_worker(orchestrator=orchestrator, settings=settings)
+
+
 async def run() -> None:
     await asyncio.gather(
-        monitor_inference(), run_turn_worker(), run_initialization_worker()
+        monitor_inference(), run_real_turn_worker(), run_initialization_worker()
     )
 
 

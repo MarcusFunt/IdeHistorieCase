@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-SUPPORTED_RUNTIME_SCHEMA_VERSIONS = frozenset({1})
+SUPPORTED_RUNTIME_SCHEMA_VERSIONS = frozenset({1, 2})
 
 
 class ScenarioRuntimeIncompatible(ValueError):

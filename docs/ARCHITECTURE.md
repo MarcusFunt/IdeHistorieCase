@@ -1,12 +1,12 @@
 # CASES architecture and data boundaries
 
-CASES is the application repository. It owns the API, PostgreSQL schema, scenario versions, durable deterministic turns, evidence policy, and import/evaluation tooling. Model serving and model files belong to the separate [Local-AI-API-LITE repository](https://github.com/MarcusFunt/Local-AI-API-LITE).
+CASES is the application repository. It owns the API, PostgreSQL schema, scenario versions, durable validated turns, evidence policy, and import/evaluation tooling. Model serving and model files belong to the separate [Local-AI-API-LITE repository](https://github.com/MarcusFunt/Local-AI-API-LITE).
 
 ```mermaid
 flowchart LR
   subgraph cases[IdeHistorieCase]
     API[FastAPI]
-    Worker[Durable turn worker\nFakeProvider by default]
+    Worker[Durable turn worker\nstructured v2 orchestrator]
     DB[(PostgreSQL)]
     Scenario[Authored scenario\n+ B3 approved evidence]
     History[history_authentic\nindependent source library]
@@ -24,7 +24,7 @@ flowchart LR
     Embed[Qwen / ddu-embed]
     Rerank[GTE / ddu-rerank]
   end
-  Worker -. optional diagnostics .-> Chat
+  Worker -->|structured proposal| Chat
 ```
 
 ## Three data planes
@@ -35,8 +35,8 @@ flowchart LR
 
 ## Runtime ownership
 
-The backend Compose project owns `postgres`, `migrate`, `api`, and `turn-worker`. PostgreSQL joins only the backend data network. The API and turn worker join the private external `ddu_inference_bus`; the API calls `ddu-embed` for historical retrieval, while the worker's default turn provider remains deterministic and fake. The worker's narrator request is a diagnostic, not generated gameplay. Reranking is optional and disabled by default. Cases never starts, stops, downloads, or configures Local-AI-API-LITE services.
+The backend Compose project owns `postgres`, `migrate`, `api`, and `turn-worker`. PostgreSQL joins only the backend data network. The API and turn worker join the private external `ddu_inference_bus`; the API calls `ddu-embed` for historical retrieval, and the worker calls the narrator for structured v2 proposals. The application validates each proposal and fences commits with renewable request leases. Reranking is optional and disabled by default. Cases never starts, stops, downloads, or configures Local-AI-API-LITE services.
 
-The migration graph is linear: `0001_service_heartbeats` → `0002_durable_turns` → `0003_scenario_definitions` → `0004_multiple_events_per_turn` → `0005_historical_rag` → `0006_history_authentic`.
+The migration graph is linear through `0013_turn_repair_budget`; it adds a durable, one-use structured repair budget to turn requests.
 
 See [B3_RAG_RUNBOOK.md](B3_RAG_RUNBOOK.md), [HISTORY_CORPUS.md](HISTORY_CORPUS.md), [RETRIEVAL_EVALUATION.md](RETRIEVAL_EVALUATION.md), and [SHARED_INFERENCE.md](SHARED_INFERENCE.md) for the operational boundaries.

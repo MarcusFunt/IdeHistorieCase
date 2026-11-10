@@ -1,21 +1,19 @@
-# M2 development: durable fake turns
+# M2 development: durable turn queue (historical guide)
+
+This document describes the original fake-provider prototype. `FakeProvider` is
+no longer a production default and the old `m2_fake_smoke.py` script was removed.
+For current v2 model turns and the isolated real-model smoke, see the repository
+[README](../README.md#optional-external-model-diagnostic).
 
 M2 starts a minimal backend flow using PostgreSQL and a deterministic fake
 provider. It runs while the independent inference server is stopped. It is
 not yet the playable Versailles scenario or a classroom deployment.
 
-## Start and exercise
+## Current development path
 
-Follow the backend-only setup in the [README](../README.md) and [backend runbook](M1_RUNBOOK.md). Creating `ddu_inference_bus` lets Compose resolve its declared external network, but no inference service is required for this fake flow. Configure the backend environment and start only the backend Compose project. After migration and startup:
-
-```sh
-python scripts/m2_fake_smoke.py --base-url http://127.0.0.1:8000
-```
-
-Use the configured `API_HOST_PORT` if it differs from 8000. The script creates
-one synthetic session and turn, retries the submission, waits for completion,
-and checks resume and replay. It prints a result without printing the token.
-It leaves the synthetic session in the configured database.
+Use the [README](../README.md) for backend startup and the disposable real-model
+gameplay smoke. The original M2 smoke command depended on the removed production
+fake-provider default and is intentionally not available.
 
 ## API contract
 

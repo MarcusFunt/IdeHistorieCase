@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     rag_min_rerank_score: float = Field(default=0.20, ge=0.0, le=1.0)
     worker_poll_seconds: float = Field(default=10.0, ge=1.0, le=600.0)
     worker_stale_seconds: int = Field(default=45, ge=2, le=3600)
+    turn_lease_seconds: int = Field(default=60, ge=1, le=600)
+    turn_lease_renew_interval_seconds: float = Field(default=15.0, gt=0.0, le=300.0)
+    turn_context_timeout_seconds: float = Field(default=30.0, ge=0.1, le=300.0)
+    turn_inference_timeout_seconds: float = Field(default=90.0, ge=1.0, le=600.0)
+    turn_total_timeout_seconds: float = Field(default=240.0, ge=2.0, le=900.0)
 
     @field_validator("llm_base_url")
     @classmethod
@@ -125,6 +130,19 @@ class Settings(BaseSettings):
             raise ValueError(
                 "worker_stale_seconds must exceed worker_poll_seconds plus the "
                 "4-second health-check timeout; allow extra time for database writes"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_turn_timing(self) -> Self:
+        if self.turn_lease_renew_interval_seconds * 2 >= self.turn_lease_seconds:
+            raise ValueError("turn lease renewal interval must be less than half the lease")
+        minimum_total = (
+            self.turn_context_timeout_seconds + 2 * self.turn_inference_timeout_seconds
+        )
+        if self.turn_total_timeout_seconds < minimum_total:
+            raise ValueError(
+                "turn total timeout must allow context generation and one bounded repair call"
             )
         return self
 

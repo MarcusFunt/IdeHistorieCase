@@ -1,1 +1,1 @@
-"""Durable history-game sessions and fake-provider turns."""
+"""Durable history-game sessions and validated model turns."""

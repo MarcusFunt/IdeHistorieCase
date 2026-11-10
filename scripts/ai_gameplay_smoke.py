@@ -1,4 +1,4 @@
-"""Run one real v2 opening against an explicitly isolated local app stack."""
+"""Run one v2 opening and three real actions against an isolated local app stack."""
 from __future__ import annotations
 
 import asyncio
@@ -117,6 +117,87 @@ async def run_smoke() -> dict:
                 raise RuntimeError("opening or initialized state changed after session reload")
             resumed_state = resumed_body["state"]
 
+            actions = [
+                "Jeg vil sammenholde lønregnskaberne med fabrikkens arbejdsplaner.",
+                "Bed vidnet forklare, hvem der havde adgang til regnskaberne.",
+                "Jeg foreslår uventet, at vi afbryder mødet og inviterer alle til at synge på gårdspladsen.",
+            ]
+            turn_trace = []
+            for expected_turn, action in enumerate(actions):
+                client_turn_id = str(uuid4())
+                turn_payload = {
+                    "client_turn_id": client_turn_id,
+                    "expected_turn": expected_turn,
+                    "text": action,
+                    "input_language": "da",
+                }
+                turn_headers = {
+                    **headers,
+                    "Idempotency-Key": client_turn_id,
+                }
+                submitted = await client.post(
+                    f"/api/v1/sessions/{session_id}/turns",
+                    json=turn_payload,
+                    headers=turn_headers,
+                )
+                if submitted.status_code != 202:
+                    raise RuntimeError(
+                        f"turn {expected_turn + 1} submission failed with HTTP {submitted.status_code}"
+                    )
+                repeated = await client.post(
+                    f"/api/v1/sessions/{session_id}/turns",
+                    json=turn_payload,
+                    headers=turn_headers,
+                )
+                if (
+                    repeated.status_code != 202
+                    or repeated.json().get("request_id") != submitted.json().get("request_id")
+                ):
+                    raise RuntimeError("duplicate turn submission created a second request")
+
+                turn_status = None
+                request_location = submitted.headers.get("location")
+                while time.monotonic() < deadline:
+                    polled = await client.get(request_location, headers=headers)
+                    if polled.status_code != 200:
+                        raise RuntimeError(
+                            f"turn polling failed with HTTP {polled.status_code}"
+                        )
+                    turn_status = polled.json()
+                    if turn_status.get("status") in {"completed", "failed"}:
+                        break
+                    await asyncio.sleep(0.5)
+                if not isinstance(turn_status, dict) or turn_status.get("status") != "completed":
+                    raise RuntimeError(
+                        f"turn {expected_turn + 1} did not complete: "
+                        f"{turn_status.get('failure_code') if isinstance(turn_status, dict) else 'timeout'}"
+                    )
+                turn_trace.append(
+                    {
+                        "turn_number": expected_turn + 1,
+                        "player_action": action,
+                        "request_id": turn_status.get("request_id"),
+                        "result": turn_status.get("result"),
+                    }
+                )
+
+            resumed = await client.get(
+                f"/api/v1/sessions/{session_id}", headers=headers
+            )
+            history = await client.get(
+                f"/api/v1/sessions/{session_id}/turns", headers=headers
+            )
+            if (
+                resumed.status_code != 200
+                or history.status_code != 200
+                or resumed.json().get("turn_number") != 3
+                or len(history.json().get("turns", [])) != 3
+                or history.json().get("turns")
+                != [item["result"] for item in turn_trace]
+            ):
+                raise RuntimeError("turn state or history changed after reload")
+            resumed_state = resumed.json()["state"]
+
     if not isinstance(status, dict) or status.get("status") != "ready":
         failure = status.get("failure") if isinstance(status, dict) else None
         return {
@@ -151,6 +232,8 @@ async def run_smoke() -> dict:
         "state_turn_number": (resumed_state or {}).get("turn_number"),
         "scenario_content_hash": (provenance.get("scenario") or {}).get("content_hash"),
         "eligible_evidence": provenance.get("eligible_evidence", []),
+        "turn_trace": turn_trace,
+        "turns_reload_verified": len(turn_trace) == 3,
     }
 
 

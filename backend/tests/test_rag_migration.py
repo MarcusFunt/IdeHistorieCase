@@ -77,7 +77,7 @@ async def test_historical_rag_migration_adds_vector_store_without_changing_m2():
             assert [row["column_name"] for row in m2_columns] == [
                 "id", "session_id", "client_turn_id", "expected_turn", "text",
                 "input_language", "status", "attempts", "lease_token", "leased_until",
-                "next_attempt_at", "failure_code", "created_at", "updated_at",
+                "next_attempt_at", "failure_code", "created_at", "updated_at", "repair_used",
             ]
 
             scenario_id = await db.fetchval(

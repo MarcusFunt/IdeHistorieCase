@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository owns the history application: PostgreSQL, migrations, the FastAPI service, worker monitoring, and the app-specific Danish diagnostic. Model serving is owned by [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE), which runs a pinned vLLM image and model independently. The M2 fake turn flow works without that service.
+This repository owns the history application: PostgreSQL, migrations, the FastAPI service, worker monitoring, and the app-specific Danish diagnostic. Model serving is owned by [Local-AI-API-LITE](https://github.com/MarcusFunt/Local-AI-API-LITE), which runs a pinned vLLM image and model independently. V2 initialization and turns require that inference service; health and database readiness do not.
 
 The earlier M1/M1.5 llama.cpp and GGUF setup is historical and is not the current deployment. See [M1.5 validation](M1_5_VALIDATION.md) for measurements from that earlier setup.
 
@@ -75,7 +75,7 @@ With both deployments running, run from this repository root:
 bash scripts/m1_smoke.sh
 ```
 
-The script checks backend and database health, the private narrator health endpoint, worker/model status, the history application's strict Danish response schema, and the deterministic fake M2 turn. The model diagnostic is separate from M2 session processing; M2 turn results continue to come from the fake provider. Historical evidence queries additionally require the pinned `ddu-embed` retrieval worker; `/readyz` and fake turns do not.
+The script checks backend and database health, the private narrator health endpoint, worker/model status, and the history application's strict Danish response schema. It runs the v2 gameplay smoke only when `CASES_ISOLATED_SMOKE=1` and `CASES_SMOKE_DB_NAME` identifies a disposable database; otherwise it skips session creation. Historical evidence queries additionally require the pinned `ddu-embed` retrieval worker.
 
 To check inference failure and recovery, stop and restart the model through the Local-AI-API-LITE project only. The backend and database should remain up; after the heartbeat poll, `/api/v1/status` reports `degraded`, then returns to `ready` when the model is available again. `/readyz` stays 200 because it reflects database readiness. The old pinned llama.cpp runtime and verified GGUF have also been exercised as a rollback path without resetting the application database; the evidence is recorded in Local-AI-API-LITE `docs/CUTOVER_AND_ROLLBACK.md`.
 

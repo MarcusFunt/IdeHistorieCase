@@ -228,7 +228,7 @@ async def test_import_preview_activation_inspection_and_playable_check_commands(
     report = json.loads(checked.stdout)
     assert report["checks"]["schema_valid"]["status"] == "valid"
     assert report["checks"]["publication_integrity"]["status"] == "valid"
-    assert report["checks"]["runtime_compatibility"]["status"] == "unsupported"
+    assert report["checks"]["runtime_compatibility"]["status"] == "supported"
     assert report["checks"]["author_content_readiness"]["status"] == "not_ready"
     assert report["checks"]["evidence_readiness"]["status"] == "not_required"
     assert report["playable"] is False

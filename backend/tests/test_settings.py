@@ -10,6 +10,7 @@ def test_password_with_reserved_characters_is_url_encoded():
         db_user="ddu_app",
         db_password="p@ss:with/odd#chars",
         db_name="history",
+        db_port=5432,
     )
     url = settings.database_url.render_as_string(hide_password=False)
     assert "p%40ss%3Awith%2Fodd%23chars" in url
@@ -59,3 +60,28 @@ def test_llm_completion_timeout_is_bounded_for_initialization_inference():
         Settings(llm_completion_timeout_seconds=0.5)
     with pytest.raises(ValidationError, match="llm_completion_timeout_seconds"):
         Settings(llm_completion_timeout_seconds=601)
+
+
+def test_turn_timing_defaults_allow_context_and_one_repair_call():
+    settings = Settings()
+    assert settings.turn_lease_seconds == 60
+    assert settings.turn_lease_renew_interval_seconds == 15
+    assert settings.turn_context_timeout_seconds == 30
+    assert settings.turn_inference_timeout_seconds == 90
+    assert settings.turn_total_timeout_seconds >= (
+        settings.turn_context_timeout_seconds + 2 * settings.turn_inference_timeout_seconds
+    )
+
+
+def test_turn_lease_renewal_must_run_before_half_lease():
+    with pytest.raises(ValidationError, match="less than half the lease"):
+        Settings(turn_lease_seconds=10, turn_lease_renew_interval_seconds=5)
+
+
+def test_turn_total_timeout_must_include_context_and_repair_budget():
+    with pytest.raises(ValidationError, match="one bounded repair call"):
+        Settings(
+            turn_context_timeout_seconds=30,
+            turn_inference_timeout_seconds=90,
+            turn_total_timeout_seconds=209,
+        )

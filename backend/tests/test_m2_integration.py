@@ -68,6 +68,13 @@ def request_headers(session, payload):
     }
 
 
+class ExplicitLegacyReplyProvider:
+    """Test-only adapter for v1 compatibility coverage."""
+
+    async def generate(self, text):
+        return {"reply": "Dit forslag er registreret til den historiske drøftelse."}
+
+
 async def test_authenticated_session_and_idempotent_submission(client):
     session = await new_session(client)
     payload = turn_input()
@@ -131,14 +138,14 @@ async def test_session_token_is_hashed_and_invalid_inputs_are_rejected(client):
     assert (await client.post(url, json={**payload, "expected_turn": 9}, headers=headers)).status_code == 409
 
 
-async def test_fake_turn_completes_and_replays_without_inference(client):
+async def test_explicit_legacy_turn_adapter_completes_and_replays(client):
     session = await new_session(client)
     payload = turn_input()
     headers = request_headers(session, payload)
     url = f"/api/v1/sessions/{session['id']}/turns"
     accepted = await client.post(url, json=payload, headers=headers)
     assert accepted.status_code == 202
-    assert await process_next()
+    assert await process_next(ExplicitLegacyReplyProvider())
     status = await client.get(accepted.headers["location"], headers=headers)
     assert status.json()["status"] == "completed"
     assert status.json()["result"]["turn_number"] == 1
@@ -244,7 +251,7 @@ async def test_resume_is_consistent_when_a_turn_completes_during_the_read(client
     worker = None
     try:
         await asyncio.wait_for(read_started.wait(), timeout=2)
-        worker = asyncio.create_task(process_next())
+        worker = asyncio.create_task(process_next(ExplicitLegacyReplyProvider()))
         try:
             await asyncio.wait_for(asyncio.shield(worker), timeout=0.7)
         except TimeoutError:
@@ -282,7 +289,7 @@ async def test_poll_is_consistent_when_a_turn_completes_during_the_read(client, 
     worker = None
     try:
         await asyncio.wait_for(read_started.wait(), timeout=2)
-        worker = asyncio.create_task(process_next())
+        worker = asyncio.create_task(process_next(ExplicitLegacyReplyProvider()))
         try:
             await asyncio.wait_for(asyncio.shield(worker), timeout=0.7)
         except TimeoutError:
@@ -364,7 +371,7 @@ async def test_hung_provider_is_bounded_and_requeued(client, monkeypatch):
     assert await process_next(HungProvider())
     status = await client.get(response.headers["location"], headers=headers)
     assert status.json()["status"] == "queued"
-    assert status.json()["failure_code"] == "INTERNAL_ERROR"
+    assert status.json()["failure_code"] == "INFERENCE_TIMEOUT"
 
 
 async def test_malformed_proposal_cannot_commit_game_state(client):
