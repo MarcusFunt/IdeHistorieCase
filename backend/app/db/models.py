@@ -17,6 +17,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -228,12 +229,15 @@ class TurnRequest(Base):
         UniqueConstraint("session_id", "client_turn_id"),
         CheckConstraint("expected_turn >= 0"),
         CheckConstraint("attempts >= 0"),
-        CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'retryable_failure', 'failed')",
+            name="ck_turn_requests_status",
+        ),
         Index(
             "uq_turn_requests_active_session",
             "session_id",
             unique=True,
-            postgresql_where=text("status IN ('queued', 'running')"),
+            postgresql_where=text("status IN ('queued', 'running', 'retryable_failure')"),
         ),
         Index("ix_turn_requests_claim", "status", "created_at"),
     )
@@ -246,10 +250,16 @@ class TurnRequest(Base):
     expected_turn: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     input_language: Mapped[str] = mapped_column(String(8), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    client_retry_used: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     repair_used: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    attempt_metadata: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=sql_text("'[]'::jsonb")
     )
     lease_token: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     leased_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -257,6 +267,8 @@ class TurnRequest(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     failure_code: Mapped[str | None] = mapped_column(String(64))
+    failure_stage: Mapped[str | None] = mapped_column(String(32))
+    failure_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

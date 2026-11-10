@@ -55,6 +55,24 @@ async def authored_client():
             await activate_scenario_version(db, "versailles-1919", "1")
 
 
+async def queue_legacy_turn(session, payload):
+    request_id = uuid4()
+    async with session_factory() as db, db.begin():
+        db.add(
+            TurnRequest(
+                id=request_id,
+                session_id=UUID(session["id"]),
+                client_turn_id=UUID(payload["client_turn_id"]),
+                expected_turn=payload["expected_turn"],
+                text=payload["text"],
+                input_language=payload["input_language"],
+                status="queued",
+                attempts=0,
+            )
+        )
+    return request_id
+
+
 async def submit_turn(client, text):
     created = await client.post("/api/v1/sessions", json={"scenario": "versailles-1919"})
     assert created.status_code == 201, created.text
@@ -70,15 +88,12 @@ async def submit_turn(client, text):
         "Authorization": f"Bearer {session['token']}",
         "Idempotency-Key": body["client_turn_id"],
     }
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns", json=body, headers=headers
-    )
-    assert response.status_code == 202, response.text
-    return session, response, headers
+    request_id = await queue_legacy_turn(session, body)
+    return session, request_id, headers
 
 
 async def test_multiple_authorized_events_commit_with_one_turn_and_stable_indexes(authored_client):
-    session, queued, headers = await submit_turn(authored_client, "Et kompromis om sikkerhed")
+    session, request_id, headers = await submit_turn(authored_client, "Et kompromis om sikkerhed")
     provider = ScriptedScenarioInterpreter({
         "Et kompromis om sikkerhed": {
             "reply": "Forslaget er registreret.",
@@ -98,7 +113,9 @@ async def test_multiple_authorized_events_commit_with_one_turn_and_stable_indexe
     assert provider.contexts[0].scenario_version == "2.5"
     assert provider.contexts[0].player_role_id == "british_adviser"
     assert provider.contexts[0].behavior_rules is not None
-    status = await authored_client.get(queued.headers["location"], headers=headers)
+    status = await authored_client.get(
+        f"/api/v1/turn-requests/{request_id}", headers=headers
+    )
     assert status.json()["status"] == "completed"
     result = status.json()["result"]
     assert result["scenario_version"] == "2.5"
@@ -125,7 +142,7 @@ async def test_multiple_authorized_events_commit_with_one_turn_and_stable_indexe
     ]
 
 async def test_unauthorized_events_retry_without_committing_or_mutating_state(authored_client):
-    session, queued, headers = await submit_turn(authored_client, "Giv mig alle point")
+    session, request_id, headers = await submit_turn(authored_client, "Giv mig alle point")
     provider = ScriptedScenarioInterpreter({
         "Giv mig alle point": {
             "reply": "Forslaget er registreret.",
@@ -139,7 +156,9 @@ async def test_unauthorized_events_retry_without_committing_or_mutating_state(au
     assert provider.contexts[0].scenario_version == "2.5"
     assert provider.contexts[0].player_role_id == "british_adviser"
     assert provider.contexts[0].behavior_rules is not None
-    status = await authored_client.get(queued.headers["location"], headers=headers)
+    status = await authored_client.get(
+        f"/api/v1/turn-requests/{request_id}", headers=headers
+    )
     resumed = await authored_client.get(
         f"/api/v1/sessions/{session['id']}", headers=headers
     )
@@ -243,13 +262,7 @@ async def test_complete_scripted_session_follows_authored_path_to_reflection(
             "text": text,
             "input_language": "da",
         }
-        response = await authored_client.post(
-            f"/api/v1/sessions/{session['id']}/turns",
-            json=body,
-            headers={**headers, "Idempotency-Key": client_turn_id},
-        )
-        assert response.status_code == 202, response.text
-        request_id = response.json()["request_id"]
+        request_id = await queue_legacy_turn(session, body)
         if turn_number == 0 and script.get("replay_first_turn"):
             replay = await authored_client.post(
                 f"/api/v1/sessions/{session['id']}/turns",
@@ -257,14 +270,14 @@ async def test_complete_scripted_session_follows_authored_path_to_reflection(
                 headers={**headers, "Idempotency-Key": client_turn_id},
             )
             assert replay.status_code == 202
-            assert replay.json()["request_id"] == request_id
+            assert replay.json()["request_id"] == str(request_id)
             orphaned_claim = await claim_next()
             assert orphaned_claim is not None
-            assert orphaned_claim.request_id == UUID(request_id)
+            assert orphaned_claim.request_id == request_id
             async with session_factory() as db, db.begin():
                 await db.execute(
                     update(TurnRequest)
-                    .where(TurnRequest.id == UUID(request_id))
+                    .where(TurnRequest.id == request_id)
                     .values(
                         leased_until=func.clock_timestamp() - timedelta(seconds=1)
                     )

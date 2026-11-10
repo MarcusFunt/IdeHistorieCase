@@ -1,7 +1,8 @@
 """V2 model turns validate, commit, and reload through the durable API."""
 import asyncio
 from datetime import timedelta
-from uuid import UUID
+from hashlib import sha256
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -10,9 +11,24 @@ from sqlalchemy import func, select, update
 from app.ai.llm import StructuredCompletion
 from app.core.settings import Settings
 from app.db.connection import session_factory
-from app.db.models import CommittedTurn, GameEvent, GameSession, TurnRequest
-from app.game.turn_worker import process_next
-from app.runtime.orchestrator import TurnOrchestrator
+from app.db.models import (
+    CommittedTurn,
+    GameEvent,
+    GameSession,
+    HistoricalPassage,
+    HistoricalPassageReview,
+    ScenarioVersion,
+    TurnRequest,
+)
+from app.game import turn_worker
+from app.game.turn_worker import claim_next, complete_claim, fail_claim, process_next
+from app.rag.repository import record_review
+from app.rag.retrieval import RAG_NO_EVIDENCE, RagSearchResult
+from app.runtime.orchestrator import TurnGeneration, TurnGenerationFailure, TurnOrchestrator
+from app.runtime.proposals import (
+    HistoricalClaimRecordedEvent,
+    TurnProposal,
+)
 
 
 class ScriptedGenerator:
@@ -44,7 +60,7 @@ class ScriptedGenerator:
 
 class NoEvidenceRetriever:
     async def search(self, query, context, *, top_k):
-        raise AssertionError("scenario fixture should not expose eligible source passages")
+        return RagSearchResult(status=RAG_NO_EVIDENCE, passages=[])
 
 
 def proposal(role, objective):
@@ -155,6 +171,96 @@ async def test_v2_turn_projects_committed_events_and_survives_reload(turn_harnes
 
 
 @pytest.mark.asyncio
+async def test_next_turn_prompt_includes_the_previous_visible_exchange(turn_harness):
+    session = await turn_harness.create_ready_session()
+    headers = {"Authorization": f"Bearer {session['token']}"}
+    role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
+    first = await turn_harness.submit_turn(session, "Undersøg regnskaberne.")
+    assert first.status_code == 202, first.text
+    first_generator = ScriptedGenerator(
+        [proposal(role, turn_harness.definition.learning_objectives[0])]
+    )
+    assert await process_next(
+        orchestrator=TurnOrchestrator(
+            generator=first_generator,
+            retrieval_service=NoEvidenceRetriever(),
+            settings=quick_settings(),
+        ),
+        settings=quick_settings(),
+    )
+    first_status = await turn_harness.client.get(first.headers["location"], headers=headers)
+    assert first_status.json()["status"] == "completed", first_status.text
+    first_result = first_status.json()["result"]
+
+    second = await turn_harness.submit_turn(session, "Ja.", expected_turn=1)
+    assert second.status_code == 202, second.text
+    second_output = {
+        **proposal(role, turn_harness.definition.learning_objectives[0]),
+        "narration": "Jeg noterer dit svar og fortsætter undersøgelsen.",
+        "dialogue": [],
+        "state_operations": [],
+        "learning_observations": [],
+    }
+    second_generator = ScriptedGenerator([second_output])
+    assert await process_next(
+        orchestrator=TurnOrchestrator(
+            generator=second_generator,
+            retrieval_service=NoEvidenceRetriever(),
+            settings=quick_settings(),
+        ),
+        settings=quick_settings(),
+    )
+    second_prompt = second_generator.calls[0]["user_prompt"]
+    assert first_result["reply"] in second_prompt
+    assert first_result["dialogue"][0]["text"] in second_prompt
+    assert first_result["next_player_prompt"] in second_prompt
+    assert "Ja." in second_prompt
+
+
+@pytest.mark.asyncio
+async def test_large_committed_projection_is_bounded_for_the_next_prompt(turn_harness):
+    session = await turn_harness.create_ready_session()
+    async with session_factory() as db, db.begin():
+        game = await db.get(GameSession, UUID(session["id"]))
+        state = dict(game.state)
+        state["turn_number"] = 24
+        state["decisions"] = [
+            {
+                "summary": f"Tidligere beslutning {index}",
+                "player_action": "a" * 2000,
+                "truth_type": "player_decision",
+            }
+            for index in range(24)
+        ]
+        game.turn_number = 24
+        game.state = state
+    submitted = await turn_harness.submit_turn(
+        session, "Undersøg næste skridt.", expected_turn=24
+    )
+    role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
+    output = {
+        **proposal(role, turn_harness.definition.learning_objectives[0]),
+        "state_operations": [],
+        "learning_observations": [],
+    }
+    generator = ScriptedGenerator([output])
+    assert await process_next(
+        orchestrator=TurnOrchestrator(
+            generator=generator,
+            retrieval_service=NoEvidenceRetriever(),
+            settings=quick_settings(),
+        ),
+        settings=quick_settings(),
+    )
+    status = await turn_harness.client.get(
+        submitted.headers["location"],
+        headers={"Authorization": f"Bearer {session['token']}"},
+    )
+    assert status.json()["status"] == "completed"
+    assert len(generator.calls[0]["user_prompt"]) < 48_000
+
+
+@pytest.mark.asyncio
 async def test_delayed_provider_outlives_initial_lease_but_only_commits_once(turn_harness):
     settings = quick_settings().model_copy(
         update={
@@ -192,11 +298,176 @@ async def test_delayed_provider_outlives_initial_lease_but_only_commits_once(tur
 
 
 @pytest.mark.asyncio
+async def test_parent_cancellation_stops_generation_and_leaves_claim_reclaimable(
+    turn_harness, monkeypatch
+):
+    settings = quick_settings()
+    session = await turn_harness.create_ready_session()
+    response = await turn_harness.submit_turn(session, "Undersøg regnskaberne.")
+    generation_started = asyncio.Event()
+    release_generation = asyncio.Event()
+    commit_called = asyncio.Event()
+
+    class BlockingOrchestrator:
+        async def generate(self, claim, *, authorize_repair, record_attempt):
+            generation_started.set()
+            await release_generation.wait()
+            return object()
+
+    async def record_commit(claim, generation):
+        commit_called.set()
+        return True
+
+    monkeypatch.setattr(turn_worker, "complete_claim", record_commit)
+    task = asyncio.create_task(
+        process_next(orchestrator=BlockingOrchestrator(), settings=settings)
+    )
+    await asyncio.wait_for(generation_started.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    release_generation.set()
+    await asyncio.sleep(0.05)
+    assert not commit_called.is_set()
+
+    async with session_factory() as db, db.begin():
+        await db.execute(
+            update(TurnRequest)
+            .where(TurnRequest.id == UUID(response.json()["request_id"]))
+            .values(leased_until=func.clock_timestamp() - timedelta(seconds=1))
+        )
+    reclaimed = await claim_next(settings)
+    assert reclaimed is not None
+    assert reclaimed.request_id == UUID(response.json()["request_id"])
+    await fail_claim(reclaimed, "TEST_CANCELLATION", retryable=False)
+
+
+@pytest.mark.asyncio
+async def test_revoked_citation_is_revalidated_before_turn_commit(turn_harness):
+    session = await turn_harness.create_ready_session()
+    await turn_harness.submit_turn(session, "Undersøg dokumentet.")
+    role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
+    text = "Arbejdsplanen blev drøftet den første maj."
+    async with session_factory() as db:
+        scenario = (
+            await db.execute(
+                select(ScenarioVersion).where(
+                    ScenarioVersion.slug == turn_harness.slug,
+                    ScenarioVersion.version == turn_harness.definition.version,
+                )
+            )
+        ).scalar_one()
+    passage = HistoricalPassage(
+        id=uuid4(),
+        scenario_version_id=scenario.id,
+        scenario_slug=turn_harness.slug,
+        scenario_version=turn_harness.definition.version,
+        passage_key="turn-commit-review-race",
+        source_identifier="R01",
+        source_title="Test record",
+        source_url="https://example.test/record",
+        source_anchor="folio 1",
+        rights_basis="Controlled integration fixture",
+        passage_text=text,
+        passage_sha256=sha256(text.encode("utf-8")).hexdigest(),
+        document_date=turn_harness.definition.chronology.opening_date,
+        in_world_available_from=turn_harness.definition.chronology.opening_date,
+        postgame_only=False,
+        actor_ids=[role.actor_id],
+        visibility_scope="actor_limited",
+        corpus_sha256="a" * 64,
+    )
+    async with session_factory() as db, db.begin():
+        db.add(passage)
+        db.add(
+            HistoricalPassageReview(
+                id=uuid4(),
+                passage_id=passage.id,
+                revision=1,
+                review_status="approved",
+                rights_status="approved",
+                reviewer="integration-fixture",
+            )
+        )
+
+    evidence_event = HistoricalClaimRecordedEvent(
+        event_type="historical_claim_recorded",
+        truth_type="historical_evidence",
+        claim="Dokumentet beskriver arbejdsplanen.",
+        evidence_ids=[str(passage.id)],
+        world_date=turn_harness.definition.chronology.opening_date.isoformat(),
+        actor_id=role.actor_id,
+    )
+    turn_proposal = TurnProposal.model_validate(
+        {
+            **proposal(role, turn_harness.definition.learning_objectives[0]),
+            "historical_claims": [
+                {
+                    "truth_type": "historical_evidence",
+                    "claim": "Dokumentet beskriver arbejdsplanen.",
+                    "evidence_ids": [str(passage.id)],
+                }
+            ],
+        }
+    )
+    generation = TurnGeneration(
+        proposal=turn_proposal,
+        events=(evidence_event,),
+        provenance={
+            "scenario": {
+                "release_id": str(scenario.id),
+                "slug": scenario.slug,
+                "version": scenario.version,
+            },
+            "eligible_evidence": [
+                {
+                    "passage_id": str(passage.id),
+                    "passage_sha256": passage.passage_sha256,
+                    "review_revision": 1,
+                }
+            ]
+        },
+        scenario_version=turn_harness.definition.version,
+    )
+
+    claim = await claim_next(quick_settings())
+    assert claim is not None
+    async with session_factory() as db, db.begin():
+        await record_review(
+            db,
+            passage.id,
+            reviewer="integration-fixture",
+            decision="revoked",
+            rights_status="pending",
+        )
+    with pytest.raises(TurnGenerationFailure, match="EVIDENCE_UNAVAILABLE") as failure:
+        await complete_claim(claim, generation)
+    assert failure.value.stage == "commit"
+    async with session_factory() as db:
+        stored = await db.get(GameSession, UUID(session["id"]))
+        committed = (
+            await db.execute(
+                select(CommittedTurn).where(
+                    CommittedTurn.session_id == UUID(session["id"])
+                )
+            )
+        ).scalars().all()
+    assert stored.turn_number == 0
+    assert stored.state == session["state"]
+    assert committed == []
+
+
+@pytest.mark.asyncio
 async def test_invalid_output_uses_one_durable_repair_then_fails_without_mutation(turn_harness):
     session = await turn_harness.create_ready_session()
     response = await turn_harness.submit_turn(session, "Undersøg regnskaberne.")
     role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
-    invalid = {**proposal(role, turn_harness.definition.learning_objectives[0]), "extra": True}
+    invalid = {
+        **proposal(role, turn_harness.definition.learning_objectives[0]),
+        "extra": True,
+        "private_model_text": "must never be stored",
+    }
     generator = ScriptedGenerator([invalid, invalid])
     orchestrator = TurnOrchestrator(
         generator=generator,
@@ -207,8 +478,13 @@ async def test_invalid_output_uses_one_durable_repair_then_fails_without_mutatio
     assert await process_next(orchestrator=orchestrator, settings=quick_settings())
     headers = {"Authorization": f"Bearer {session['token']}"}
     status = await turn_harness.client.get(response.headers["location"], headers=headers)
-    assert status.json()["status"] == "failed"
+    assert status.json()["status"] == "failed", status.text
     assert status.json()["failure_code"] == "MODEL_OUTPUT_INVALID"
+    attempts = status.json()["attempt_metadata"]
+    assert len(attempts) == 2
+    assert all(item["outcome"] == "validation_rejected" for item in attempts)
+    assert all(item["output_sha256"] == "a" * 64 for item in attempts)
+    assert "must never be stored" not in str(attempts)
     assert len(generator.calls) == 2
     async with session_factory() as db:
         request = await db.get(TurnRequest, UUID(status.json()["request_id"]))
@@ -266,6 +542,64 @@ async def test_unreachable_real_provider_returns_retryable_unavailable(turn_harn
     )
     assert status.json()["status"] == "queued"
     assert status.json()["failure_code"] == "INFERENCE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_allows_one_same_request_retry_cycle(turn_harness):
+    session = await turn_harness.create_ready_session()
+    submitted = await turn_harness.submit_turn(session, "Undersøg situationen.")
+    request_id = UUID(submitted.json()["request_id"])
+    headers = {"Authorization": f"Bearer {session['token']}"}
+
+    class UnavailableGenerator:
+        async def generate_structured(self, **kwargs):
+            raise httpx.ConnectError("unreachable")
+
+    orchestrator = TurnOrchestrator(
+        generator=UnavailableGenerator(),
+        retrieval_service=NoEvidenceRetriever(),
+        settings=quick_settings(),
+    )
+    for index in range(3):
+        processed = await process_next(orchestrator=orchestrator, settings=quick_settings())
+        assert processed, f"no request claimed on attempt {index + 1}"
+        async with session_factory() as db, db.begin():
+            await db.execute(
+                update(TurnRequest)
+                .where(TurnRequest.id == request_id)
+                .values(next_attempt_at=func.clock_timestamp() - timedelta(seconds=1))
+            )
+    status = await turn_harness.client.get(submitted.headers["location"], headers=headers)
+    assert status.json()["status"] == "retryable_failure"
+    assert status.json()["failure"] == {
+        "code": "INFERENCE_UNAVAILABLE",
+        "stage": "inference",
+        "retryable": True,
+        "message": "Turn inference is temporarily unavailable.",
+    }
+
+    retry_url = f"/api/v1/turn-requests/{request_id}/retry"
+    retry = await turn_harness.client.post(retry_url, headers=headers)
+    assert retry.status_code == 202, retry.text
+    assert retry.json()["request_id"] == str(request_id)
+    assert retry.json()["status"] == "queued"
+    repeated_retry = await turn_harness.client.post(retry_url, headers=headers)
+    assert repeated_retry.status_code == 202
+    assert repeated_retry.json()["request_id"] == str(request_id)
+
+    for _ in range(3):
+        assert await process_next(orchestrator=orchestrator, settings=quick_settings())
+        async with session_factory() as db, db.begin():
+            await db.execute(
+                update(TurnRequest)
+                .where(TurnRequest.id == request_id)
+                .values(next_attempt_at=func.clock_timestamp() - timedelta(seconds=1))
+            )
+    exhausted = await turn_harness.client.get(submitted.headers["location"], headers=headers)
+    assert exhausted.json()["status"] == "failed"
+    assert exhausted.json()["failure"]["retryable"] is False
+    denied = await turn_harness.client.post(retry_url, headers=headers)
+    assert denied.status_code == 409
 
 
 @pytest.mark.asyncio

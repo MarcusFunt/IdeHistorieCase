@@ -277,12 +277,12 @@ async def _playable_check_command(slug: str, version: str) -> int:
         ).scalar_one_or_none()
         if scenario is None:
             raise ScenarioVersionNotFound(f"scenario version not found: {slug}@{version}")
-        report = await _readiness_report(db, scenario)
+        report = await scenario_readiness_report(db, scenario)
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
     return 0 if report["playable"] else 1
 
 
-async def _readiness_report(db, scenario: ScenarioVersion) -> dict:
+async def scenario_readiness_report(db, scenario: ScenarioVersion) -> dict:
     definition = None
     schema_error = None
     try:

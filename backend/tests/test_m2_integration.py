@@ -52,6 +52,24 @@ async def new_session(client):
     return session
 
 
+async def queue_legacy_turn(session, payload):
+    request_id = uuid4()
+    async with session_factory() as db, db.begin():
+        db.add(
+            TurnRequest(
+                id=request_id,
+                session_id=UUID(session["id"]),
+                client_turn_id=UUID(payload["client_turn_id"]),
+                expected_turn=payload["expected_turn"],
+                text=payload["text"],
+                input_language=payload["input_language"],
+                status="queued",
+                attempts=0,
+            )
+        )
+    return request_id
+
+
 def turn_input(turn_id=None):
     return {
         "client_turn_id": str(turn_id or uuid4()),
@@ -85,19 +103,28 @@ async def test_authenticated_session_and_idempotent_submission(client):
         client.post(url, json=payload, headers=headers),
         client.post(url, json=payload, headers=headers),
     )
-    assert first.status_code == retry.status_code == 202
-    request_id = first.json()["request_id"]
-    assert retry.json()["request_id"] == request_id
-    assert first.headers["location"] == f"/api/v1/turn-requests/{request_id}"
+    assert first.status_code == retry.status_code == 409
     resumed = await client.get(
         f"/api/v1/sessions/{session['id']}", headers={"Authorization": headers["Authorization"]}
     )
     assert resumed.status_code == 200
-    assert resumed.json()["pending_request"]["request_id"] == request_id
+    assert resumed.json()["pending_request"] is None
     assert "token" not in resumed.json()
     history = await client.get(url, headers={"Authorization": headers["Authorization"]})
     assert history.status_code == 200
     assert history.json()["turns"] == []
+
+
+async def test_new_legacy_turn_submissions_are_rejected(client):
+    session = await new_session(client)
+    payload = turn_input()
+    response = await client.post(
+        f"/api/v1/sessions/{session['id']}/turns",
+        json=payload,
+        headers=request_headers(session, payload),
+    )
+    assert response.status_code == 409
+    assert "read-only" in response.json()["detail"]
 
 
 async def test_turn_conflicts_and_session_isolation(client):
@@ -107,18 +134,22 @@ async def test_turn_conflicts_and_session_isolation(client):
     headers = request_headers(first_session, payload)
     url = f"/api/v1/sessions/{first_session['id']}/turns"
     accepted = await client.post(url, json=payload, headers=headers)
-    assert accepted.status_code == 202
+    assert accepted.status_code == 409
+    request_id = await queue_legacy_turn(first_session, payload)
+    replay = await client.post(url, json=payload, headers=headers)
+    assert replay.status_code == 202
+    assert replay.json()["request_id"] == str(request_id)
 
     changed = {**payload, "text": "Et andet forslag."}
     assert (await client.post(url, json=changed, headers=headers)).status_code == 409
     other = turn_input()
     conflict = await client.post(url, json=other, headers=request_headers(first_session, other))
     assert conflict.status_code == 409
-    assert conflict.json()["request_id"] == accepted.json()["request_id"]
+    assert "read-only" in conflict.json()["detail"]
 
     other_auth = {"Authorization": f"Bearer {other_session['token']}"}
     assert (await client.get(f"/api/v1/sessions/{first_session['id']}", headers=other_auth)).status_code == 404
-    assert (await client.get(accepted.headers["location"], headers=other_auth)).status_code == 404
+    assert (await client.get(f"/api/v1/turn-requests/{request_id}", headers=other_auth)).status_code == 404
     assert (await client.post(url, json=other, headers=request_headers(other_session, other))).status_code == 404
     assert (await client.get(f"/api/v1/sessions/{first_session['id']}")).status_code == 401
 
@@ -143,10 +174,22 @@ async def test_explicit_legacy_turn_adapter_completes_and_replays(client):
     payload = turn_input()
     headers = request_headers(session, payload)
     url = f"/api/v1/sessions/{session['id']}/turns"
-    accepted = await client.post(url, json=payload, headers=headers)
-    assert accepted.status_code == 202
+    request_id = uuid4()
+    async with session_factory() as db, db.begin():
+        db.add(
+            TurnRequest(
+                id=request_id,
+                session_id=UUID(session["id"]),
+                client_turn_id=UUID(payload["client_turn_id"]),
+                expected_turn=payload["expected_turn"],
+                text=payload["text"],
+                input_language=payload["input_language"],
+                status="queued",
+                attempts=0,
+            )
+        )
     assert await process_next(ExplicitLegacyReplyProvider())
-    status = await client.get(accepted.headers["location"], headers=headers)
+    status = await client.get(f"/api/v1/turn-requests/{request_id}", headers=headers)
     assert status.json()["status"] == "completed"
     assert status.json()["result"]["turn_number"] == 1
     assert status.json()["result"]["player_text"] == payload["text"]
@@ -157,19 +200,18 @@ async def test_explicit_legacy_turn_adapter_completes_and_replays(client):
     assert history.json()["turns"] == [status.json()["result"]]
     retry = await client.post(url, json=payload, headers=headers)
     assert retry.status_code == 202
-    assert retry.json()["request_id"] == accepted.json()["request_id"]
+    assert retry.json()["request_id"] == str(request_id)
     stale = turn_input()
-    assert (await client.post(url, json=stale, headers=request_headers(session, stale))).status_code == 409
+    unsupported = await client.post(
+        url, json=stale, headers=request_headers(session, stale)
+    )
+    assert unsupported.status_code == 409
 
 
 async def test_expired_lease_cannot_commit_and_only_one_turn_is_recorded(client):
     session = await new_session(client)
     payload = turn_input()
-    accepted = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns",
-        json=payload, headers=request_headers(session, payload),
-    )
-    assert accepted.status_code == 202
+    await queue_legacy_turn(session, payload)
     first = await claim_next()
     assert first is not None
     async with session_factory() as db, db.begin():
@@ -193,11 +235,7 @@ async def test_expired_lease_cannot_commit_and_only_one_turn_is_recorded(client)
 async def test_two_workers_cannot_claim_the_same_request(client):
     session = await new_session(client)
     payload = turn_input()
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns",
-        json=payload, headers=request_headers(session, payload),
-    )
-    assert response.status_code == 202
+    await queue_legacy_turn(session, payload)
     claims = await asyncio.gather(claim_next(), claim_next())
     assert sum(claim is not None for claim in claims) == 1
 
@@ -213,10 +251,8 @@ async def test_generation_does_not_hold_a_session_transaction(client):
 
     session = await new_session(client)
     payload = turn_input()
-    headers = request_headers(session, payload)
     url = f"/api/v1/sessions/{session['id']}/turns"
-    response = await client.post(url, json=payload, headers=headers)
-    assert response.status_code == 202
+    await queue_legacy_turn(session, payload)
     worker = asyncio.create_task(process_next(WaitingProvider()))
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -225,7 +261,7 @@ async def test_generation_does_not_hold_a_session_transaction(client):
             client.post(url, json=second, headers=request_headers(session, second)), timeout=2
         )
         assert conflict.status_code == 409
-        assert conflict.json()["request_id"] == response.json()["request_id"]
+        assert "read-only" in conflict.json()["detail"]
     finally:
         release.set()
         await worker
@@ -236,7 +272,7 @@ async def test_resume_is_consistent_when_a_turn_completes_during_the_read(client
     payload = turn_input()
     headers = request_headers(session, payload)
     url = f"/api/v1/sessions/{session['id']}"
-    assert (await client.post(url + "/turns", json=payload, headers=headers)).status_code == 202
+    await queue_legacy_turn(session, payload)
     read_started, release = asyncio.Event(), asyncio.Event()
     original = routes.owned_session
 
@@ -272,9 +308,7 @@ async def test_poll_is_consistent_when_a_turn_completes_during_the_read(client, 
     session = await new_session(client)
     payload = turn_input()
     headers = request_headers(session, payload)
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns", json=payload, headers=headers
-    )
+    request_id = await queue_legacy_turn(session, payload)
     read_started, release = asyncio.Event(), asyncio.Event()
     original = routes.owned_session
 
@@ -285,7 +319,9 @@ async def test_poll_is_consistent_when_a_turn_completes_during_the_read(client, 
         return result
 
     monkeypatch.setattr(routes, "owned_session", paused_session)
-    poll = asyncio.create_task(client.get(response.headers["location"], headers=headers))
+    poll = asyncio.create_task(
+        client.get(f"/api/v1/turn-requests/{request_id}", headers=headers)
+    )
     worker = None
     try:
         await asyncio.wait_for(read_started.wait(), timeout=2)
@@ -313,18 +349,15 @@ async def test_failed_provider_retries_are_bounded(client):
     session = await new_session(client)
     payload = turn_input()
     headers = request_headers(session, payload)
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns", json=payload, headers=headers
-    )
-    request_id = UUID(response.json()["request_id"])
+    request_id = await queue_legacy_turn(session, payload)
     for _ in range(3):
         assert await process_next(BrokenProvider())
         async with session_factory() as db, db.begin():
             await db.execute(update(TurnRequest).where(TurnRequest.id == request_id).values(
                 next_attempt_at=func.now() - timedelta(seconds=1)
             ))
-    status = await client.get(response.headers["location"], headers=headers)
-    assert status.json()["status"] == "failed"
+    status = await client.get(f"/api/v1/turn-requests/{request_id}", headers=headers)
+    assert status.json()["status"] == "retryable_failure"
     assert status.json()["failure_code"] == "INTERNAL_ERROR"
     assert "private details" not in status.text
 
@@ -332,11 +365,7 @@ async def test_failed_provider_retries_are_bounded(client):
 async def test_worker_does_not_commit_if_lease_expires_while_waiting_for_session_lock(client):
     session = await new_session(client)
     payload = turn_input()
-    accepted = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns",
-        json=payload, headers=request_headers(session, payload),
-    )
-    assert accepted.status_code == 202
+    await queue_legacy_turn(session, payload)
     claim = await claim_next()
     async with session_factory() as db, db.begin():
         await db.execute(update(TurnRequest).where(TurnRequest.id == claim.request_id).values(
@@ -364,12 +393,10 @@ async def test_hung_provider_is_bounded_and_requeued(client, monkeypatch):
     session = await new_session(client)
     payload = turn_input()
     headers = request_headers(session, payload)
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns", json=payload, headers=headers
-    )
+    request_id = await queue_legacy_turn(session, payload)
     monkeypatch.setattr(turn_worker, "PROVIDER_TIMEOUT_SECONDS", 0.05)
     assert await process_next(HungProvider())
-    status = await client.get(response.headers["location"], headers=headers)
+    status = await client.get(f"/api/v1/turn-requests/{request_id}", headers=headers)
     assert status.json()["status"] == "queued"
     assert status.json()["failure_code"] == "INFERENCE_TIMEOUT"
 
@@ -382,11 +409,9 @@ async def test_malformed_proposal_cannot_commit_game_state(client):
     session = await new_session(client)
     payload = turn_input()
     headers = request_headers(session, payload)
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns", json=payload, headers=headers
-    )
+    request_id = await queue_legacy_turn(session, payload)
     assert await process_next(InvalidProvider())
-    status = await client.get(response.headers["location"], headers=headers)
+    status = await client.get(f"/api/v1/turn-requests/{request_id}", headers=headers)
     assert status.json()["status"] == "queued"
     resumed = await client.get(f"/api/v1/sessions/{session['id']}", headers=headers)
     assert resumed.json()["turn_number"] == 0
@@ -411,9 +436,7 @@ async def test_repeated_worker_crashes_eventually_fail_the_request(client):
     session = await new_session(client)
     payload = turn_input()
     headers = request_headers(session, payload)
-    response = await client.post(
-        f"/api/v1/sessions/{session['id']}/turns", json=payload, headers=headers
-    )
+    request_id = await queue_legacy_turn(session, payload)
     for _ in range(3):
         claim = await claim_next()
         assert claim is not None
@@ -422,6 +445,6 @@ async def test_repeated_worker_crashes_eventually_fail_the_request(client):
                 leased_until=func.now() - timedelta(seconds=1)
             ))
     assert await claim_next() is None
-    status = await client.get(response.headers["location"], headers=headers)
-    assert status.json()["status"] == "failed"
+    status = await client.get(f"/api/v1/turn-requests/{request_id}", headers=headers)
+    assert status.json()["status"] == "retryable_failure"
     assert status.json()["failure_code"] == "MAX_ATTEMPTS_EXCEEDED"

@@ -7,6 +7,7 @@ from datetime import date
 from typing import Literal
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GameSession, ScenarioContentItem, ScenarioVersion
@@ -414,6 +415,10 @@ async def build_session_context(
 
     try:
         scenario = await db.get(ScenarioVersion, session.scenario_version_id)
+    except SQLAlchemyError as exc:
+        raise ContextBuildFailure(
+            "database_failure", "pinned scenario release could not be read"
+        ) from exc
     except Exception as exc:
         raise ContextBuildFailure(
             "validation_failure", "pinned scenario release could not be read"
@@ -441,6 +446,10 @@ async def build_session_context(
                 .order_by(ScenarioContentItem.item_key)
             )
         ).scalars().all()
+    except SQLAlchemyError as exc:
+        raise ContextBuildFailure(
+            "database_failure", "pinned scenario content could not be read"
+        ) from exc
     except Exception as exc:
         raise ContextBuildFailure(
             "validation_failure", "pinned scenario content could not be read"

@@ -3,13 +3,41 @@
   "date": "2026-11-10",
   "purpose": "Durable flow and reload trace; not a historical quality acceptance result.",
   "database": "cases_goal89_smoke",
-  "session_id": "8e29f925-d65d-4730-b46c-b2ca01dabe0a",
+  "session_id": "a1dda78b-adcf-43d3-a8e9-8d04fa9784dc",
   "scenario": {
     "slug": "versailles-1919",
-    "version": "3.0-ai",
-    "release_id": "f1005644-64e1-4bf9-87bd-5180106a346e",
-    "bundle_hash": "3d84c79a2c58377bb2c255a4c60872bbea4240b9df0539faaeb9f0635f3354c0",
-    "content_hash": "a57e5cfbbbaa3f58e4f93eda3c058b93b8d7b7c38eb8adc18150f619656790df"
+    "version": "3.1-smoke",
+    "release_id": "89a58c1d-8af6-483c-bea8-b72429cf2b45",
+    "bundle_hash": "f2893ad5ee56e204ed21d054d31ccb43dd5e513b37b90ef0ec1f7549f51833c4",
+    "content_hash": "9ec250a24e8985c71dbedd6d919d8e0fc27a96ab3fccac738f1c511b6b50f85f",
+    "playable": true,
+    "readiness_checks": {
+      "schema_valid": {
+        "status": "valid",
+        "error": null
+      },
+      "publication_integrity": {
+        "status": "valid",
+        "content_item_count": 1
+      },
+      "runtime_compatibility": {
+        "status": "supported",
+        "schema_version": 2,
+        "supported_schema_versions": [
+          1,
+          2
+        ]
+      },
+      "author_content_readiness": {
+        "status": "ready",
+        "draft_item_keys": []
+      },
+      "evidence_readiness": {
+        "status": "not_required",
+        "required_source_ids": [],
+        "approved_source_ids": []
+      }
+    }
   },
   "model": {
     "provider": "Local-AI-API-LITE",
@@ -18,121 +46,100 @@
     "revision": "vllm-0.32.0-e444220b"
   },
   "opening": {
-    "scene": "Parisfredsforhandlingerne 1919",
     "title": "Fiktiv britisk forhandlingsrådgiver",
     "role_id": "british_adviser",
-    "language": "da",
     "world_date": "1919-04-01",
-    "player_goal": "Du skal veje sikkerhed og retfærdighed i dine forslag, og undersøge, hvem der mangler repræsentation i beslutningerne.",
     "objective_ids": [
-      "weigh_security_and_justice",
+      "distinguish_evidence_and_simulation",
       "examine_representation",
-      "distinguish_evidence_and_simulation"
-    ],
-    "player_prompt": "Hvordan vil du formulere en forhandlingstilgang, der balancerer de allieredes krav om sikkerhed og retfærdighed, mens du samtidig peger på, at repræsentationen i Rådet af Fire er uretfærdig for berørte befolkninger?",
-    "simulation_label": "simulated",
-    "historical_claims": [],
-    "immediate_tension": "De allierede står ved at forme Versailles-traktaten. Tysklands fremtidige sikkerhed og økonomi hænger i balance, mens Kina og andre mindre nationer kæmper for at få indflydelse i en proces, hvor stormagterne dominerer.",
-    "present_actor_ids": [
-      "britain",
-      "china",
-      "france",
-      "germany",
-      "united_states"
-    ],
-    "unresolved_threads": [
-      "Tysklands territoriale integritet",
-      "Kinas ret til selvbestemmelse"
+      "weigh_security_and_justice"
     ]
   },
   "eligible_evidence": [],
   "turns": [
     {
       "turn_number": 1,
-      "player_action": "Jeg vil sammenholde lønregnskaberne med fabrikkens arbejdsplaner.",
-      "request_id": "6ac051c0-f560-4df9-b612-48763bbe9f34",
-      "reply": "Det er 1. april 1919 i Paris. Du sidder i Rådet af Fire som en fiktiv britisk rådgiver. Luften er tung af støv og spænding. Foran dig ligger skisserne til Versailles-traktaten. De store magter – USA, Storbritannien, Frankrig og Rusland – har allerede fastlagt de hårde vilkår for Tyskland, der ikke har fået stemme i denne proces. Kina og andre mindre nationer står i periferien, deres rettigheder til selvbestemmelse overagter af stormagternes interesse for territorier og ressourcer. Du har modtaget en handling fra spilleren, der kræver en sammenligning af lønregnskaber med fabriksarbejdsplaner. Dette emne er ikke relateret til den aktuelle forhandlingsdiskussion om sikkerhed, retfærdighed eller repræsentation, og der findes ingen autoriserede historiske kilder i systemet, der understøtter en analyse af lønregnskaber i 1919. Derfor kan handlingen ikke gennemføres i denne kontekst.",
-      "outcome_summary": "Spillerens handling om lønregnskaber og fabriksplaner kan ikke gennemføres, da der ikke er godkendte kilder til dette emne i 1919, og handlingen afviger fra de aktive forhandlingspunkter (Tysklands sikkerhed og Kinas repræsentation).",
+      "player_action": "Bed den britiske delegation forklare sine vigtigste hensyn. Svar kun med dialog og fortælling; foreslå ingen ændringer i tilstanden.",
+      "request_id": "75b29ff8-f4a5-4ada-8cce-949ef4834ec8",
       "accepted_event_types": [
+        "author_context_referenced",
         "learning_observation_recorded",
-        "relation_changed"
+        "learning_observation_recorded"
       ],
       "state_after": {
         "turn_number": 1,
         "world_date": "1919-04-01",
         "decision_count": 0,
         "open_thread_count": 2,
-        "relation_count": 1
+        "relation_count": 0
       },
       "inference": {
         "requested_model": "ddu-narrator",
         "served_model": "ddu-narrator",
         "model_revision": "vllm-0.32.0-e444220b",
-        "latency_ms": 11232,
-        "prompt_tokens": 2048,
-        "completion_tokens": 655,
+        "latency_ms": 15122,
+        "prompt_tokens": 2339,
+        "completion_tokens": 934,
         "repair_used": false,
-        "prompt_sha256": "6ed4227e0403fb84d195bdbc90137334b92c85ed3a87a4f91c7cd94e806b9549",
-        "output_sha256": "0ad5f4b5a5413ba069ed7d97a040274a361fb700c77b61bc2e047c5392461d36"
+        "prompt_sha256": "7978d9c9fb7da643d10306833349aeed564a0f751980a636d18f291a98c2881e",
+        "output_sha256": "c553e0f416338cc6d2e4a5dab8f84697f2bc0c00a711b608b04dceb9ea86cb27"
       }
     },
     {
       "turn_number": 2,
-      "player_action": "Bed vidnet forklare, hvem der havde adgang til regnskaberne.",
-      "request_id": "1f39e0b5-82e9-4ff5-ab6a-2cdd57db0b40",
-      "reply": "Luften i forhandlingsrummet er tung af spænding. Frankrig har udtalt behov for en hård hånd for at sikre fremtidig sikkerhed, mens USA forsøger at modtage en afvejning mellem sikkerhed og genopbygning. Kina kræver anerkendelse af deres rettigheder og en stemme ved bordet, hvilket understreger spørgsmålet om repræsentation. Som den britiske rådgiver står du i en svær stilling: du skal formulere et forslag, der kan tiltrække Frankrigs tillid til sikkerhed, uden at det underminerer USA's og Kinas krav om retfærdighed og inklusion. Du må også være opmærksom på, at din tidligere handling om lønregnskaber har vist sig at være uden historisk belæg i denne kontekst, og derfor ikke kan bruges som grundlag for fremtidige påstande. Fokus nu er på at konstruere en diplomati-strategi, der vejer sikkerhed og retfærdighed, og som adresserer repræsentationsmanglen.",
-      "outcome_summary": "Den britiske rådgiver har foreslået et forslag, der balancerer sikkerhed og retfærdighed, og foreslår udvidelse af Rådet af Fire. Frankrig er bekymret for sikkerheden, USA for stabiliteten, og Kina kræver anerkendelse af deres rettigheder.",
+      "player_action": "Spørg hvilke berørte grupper der mangler indflydelse. Svar kun med dialog og fortælling; foreslå ingen ændringer i tilstanden.",
+      "request_id": "c1bd60d1-4b36-473e-aa9d-dda440e9c2e7",
       "accepted_event_types": [
+        "author_context_referenced",
         "learning_observation_recorded",
-        "world_time_advanced"
+        "learning_observation_recorded"
       ],
       "state_after": {
         "turn_number": 2,
-        "world_date": "1919-04-02",
+        "world_date": "1919-04-01",
         "decision_count": 0,
         "open_thread_count": 2,
-        "relation_count": 1
+        "relation_count": 0
       },
       "inference": {
         "requested_model": "ddu-narrator",
         "served_model": "ddu-narrator",
         "model_revision": "vllm-0.32.0-e444220b",
-        "latency_ms": 17113,
-        "prompt_tokens": 3614,
-        "completion_tokens": 1021,
-        "repair_used": true,
-        "prompt_sha256": "e495871f839823cdfc7ed02810d94a1e4e5a7e2ba0cfefb8e66664194d819562",
-        "output_sha256": "194c514792245e13570daf6e17f3e423d7074c49f2b7b43d7e512161eedb152f"
+        "latency_ms": 15094,
+        "prompt_tokens": 3525,
+        "completion_tokens": 907,
+        "repair_used": false,
+        "prompt_sha256": "9649d7edaaa719dcccf2414d3f36c5cf91e050f8a0ff7d6e8d5c598b8611dac6",
+        "output_sha256": "666899d111273934d3f2c2131cfa024fcf34664e3983f02d4dc563e5d413aa8d"
       }
     },
     {
       "turn_number": 3,
       "player_action": "Jeg foreslår uventet, at vi afbryder mødet og inviterer alle til at synge på gårdspladsen.",
-      "request_id": "224b170a-9ab4-4eb0-9eaa-db755cbfb359",
-      "reply": "Dagen er ved at gå i 1919. Den britiske delegation står i Paris, hvor luften er fyldt med spændingen omkring fremtiden for Europa. Mødet i Rådet af Fire er i gang, og diskussionerne er intense. Tysklands fremtidige sikkerhed og økonomi står i centrum, mens Kina og andre mindre nationer kæmper for at få indflydelse i en proces, hvor stormagterne dominerer. I denne kontekst foreslår spilleren en handling, der er totalt uforholdsmæssig til den aktuelle forhandlingsproces. At afbryde en kritisk fredsforhandling for at invitere alle til at synge på gårdspladsen er ikke en strategi, der kan bruges til at veje sikkerhed og retfærdighed, eller til at adressere repræsentationsproblemerne. Denne handling har ingen historisk belæg i Versailles-forhandlingerne og trækker spilleren væk fra de relevante temaer om sikkerhed, retfærdighed og repræsentation. Der er ingen evidens, der understøtter, at en sang på gårdspladsen ville være en effektiv metode til at forme traktaten eller adressere de politiske og økonomiske krav fra de allierede.",
-      "outcome_summary": "Spillerens forslag om at afbryde mødet til en sang er afvist som irrelevant for den aktuelle forhandlingsproces. Diskussionen fortsætter med fokus på de politiske og økonomiske vilkår for Tyskland og repræsentationsproblemerne for mindre st",
+      "request_id": "c145c463-c627-41cc-9f54-fdad5c6eff35",
       "accepted_event_types": [
-        "player_claim_recorded",
+        "author_context_referenced",
+        "learning_observation_recorded",
         "learning_observation_recorded",
         "decision_recorded"
       ],
       "state_after": {
         "turn_number": 3,
-        "world_date": "1919-04-02",
+        "world_date": "1919-04-01",
         "decision_count": 1,
         "open_thread_count": 2,
-        "relation_count": 1
+        "relation_count": 0
       },
       "inference": {
         "requested_model": "ddu-narrator",
         "served_model": "ddu-narrator",
         "model_revision": "vllm-0.32.0-e444220b",
-        "latency_ms": 13461,
-        "prompt_tokens": 2805,
-        "completion_tokens": 775,
+        "latency_ms": 16527,
+        "prompt_tokens": 4660,
+        "completion_tokens": 963,
         "repair_used": false,
-        "prompt_sha256": "089cce48212db04866d72be928e2824a2606faeff4067233da642100dc39b0e2",
-        "output_sha256": "5dc1c7fe6e331f5a1093143bbee62d4d68f0426d2e021ff5b309809fd390c8f0"
+        "prompt_sha256": "9aa562c3edb094a0259589930aaeeca94fbb6c9f48cf24289d037e1f89639335",
+        "output_sha256": "517b90228d2155ca56cf559ea1a21bfebb2c5ee67112e87d5dbd129cc888c854"
       }
     }
   ],
@@ -140,8 +147,10 @@
     "opening_reload_verified": true,
     "three_turns_reload_verified": true,
     "state_turn_number_after_reload": 3,
+    "final_state_matches_last_turn_result": true,
     "unexpected_action_included": true,
-    "exactly_one_request_result_per_turn": true
+    "exactly_one_request_result_per_turn": true,
+    "duplicate_submission_reused_request": true
   },
-  "quality_note": "The isolated smoke release had no eligible evidence passages. The model produced durable replies and accepted operations; this trace does not certify historical accuracy."
+  "quality_note": "The reviewed smoke release intentionally has no source references and no eligible evidence. No historical claims were authorized. This trace confirms the durable flow only."
 }

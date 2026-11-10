@@ -28,6 +28,7 @@ from app.game.initialization import (
     get_session_job,
     request_retry,
 )
+from app.scenarios.cli import scenario_readiness_report
 from app.scenarios.repository import get_active_scenario
 from app.scenarios.runtime_compatibility import (
     ScenarioRuntimeIncompatible,
@@ -39,7 +40,7 @@ from app.scenarios.validation import validate_definition, validate_v2_definition
 
 router = APIRouter(prefix="/api/v1")
 bearer = HTTPBearer(auto_error=False)
-ACTIVE_STATUSES = ("queued", "running")
+ACTIVE_STATUSES = ("queued", "running", "retryable_failure")
 CAPABILITY_LIFETIME = timedelta(hours=24)
 SESSION_CAPABILITY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
@@ -95,6 +96,17 @@ def public_request(turn: TurnRequest) -> dict:
         "request_id": str(turn.id),
         "status": turn.status,
         "poll_after_ms": 1000,
+    }
+
+
+def public_turn_failure(turn: TurnRequest) -> dict | None:
+    if turn.failure_code is None:
+        return None
+    return {
+        "code": turn.failure_code,
+        "stage": turn.failure_stage or "worker",
+        "retryable": turn.status == "retryable_failure",
+        "message": turn.failure_message or "The turn could not be processed.",
     }
 
 
@@ -350,6 +362,16 @@ async def create_session(
                         raise HTTPException(
                             status_code=409, detail="Active scenario definition is invalid"
                         ) from exc
+                    readiness = await scenario_readiness_report(db, scenario)
+                    if not readiness["playable"]:
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "code": "SCENARIO_NOT_PLAYABLE",
+                                "message": "Active schema-v2 scenario is not ready for gameplay",
+                                "checks": readiness["checks"],
+                            },
+                        )
                 else:
                     raise HTTPException(
                         status_code=409, detail="Active scenario schema version is unsupported"
@@ -499,10 +521,6 @@ async def submit_turn(
                         status_code=409,
                         detail="Session initialization is not ready",
                     )
-            try:
-                require_runtime_compatible(scenario)
-            except ScenarioRuntimeIncompatible as exc:
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
             existing = (await db.execute(select(TurnRequest).where(
                 TurnRequest.session_id == session.id,
                 TurnRequest.client_turn_id == payload.client_turn_id,
@@ -513,6 +531,15 @@ async def submit_turn(
                     raise HTTPException(status_code=409, detail="Idempotency key already used")
                 response.headers["Location"] = f"/api/v1/turn-requests/{existing.id}"
                 return public_request(existing)
+            if session.runtime_version != "v2_ai":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Legacy sessions are read-only and do not accept new turns",
+                )
+            try:
+                require_runtime_compatible(scenario)
+            except ScenarioRuntimeIncompatible as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             pending = (await db.execute(select(TurnRequest).where(
                 TurnRequest.session_id == session.id, TurnRequest.status.in_(ACTIVE_STATUSES)
             ))).scalar_one_or_none()
@@ -547,8 +574,49 @@ async def get_turn_request(request_id: UUID, token: Annotated[str, Depends(requi
         return {
             **public_request(turn),
             "failure_code": turn.failure_code,
+            "failure": public_turn_failure(turn),
+            "attempt_metadata": turn.attempt_metadata or [],
             "result": result.result if result else None,
         }
+
+
+@router.post("/turn-requests/{request_id}/retry", status_code=202)
+async def retry_turn_request(
+    request_id: UUID,
+    token: Annotated[str, Depends(require_token)],
+):
+    async with session_factory() as db, db.begin():
+        initial = (
+            await db.execute(select(TurnRequest).where(TurnRequest.id == request_id))
+        ).scalar_one_or_none()
+        if initial is None:
+            raise HTTPException(status_code=404, detail="Turn request not found")
+        await owned_session(db, initial.session_id, token, lock=True)
+        turn = (
+            await db.execute(
+                select(TurnRequest)
+                .where(TurnRequest.id == request_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if turn is None:
+            raise HTTPException(status_code=404, detail="Turn request not found")
+        if turn.status in {"queued", "running", "completed"}:
+            return public_request(turn)
+        if turn.status != "retryable_failure" or turn.client_retry_used:
+            raise HTTPException(status_code=409, detail="Turn request has no retry remaining")
+        now = (await db.execute(select(func.clock_timestamp()))).scalar_one()
+        turn.status = "queued"
+        turn.attempts = 0
+        turn.client_retry_used = True
+        turn.failure_code = None
+        turn.failure_stage = None
+        turn.failure_message = None
+        turn.lease_token = None
+        turn.leased_until = None
+        turn.next_attempt_at = now
+        turn.updated_at = now
+        return public_request(turn)
 
 
 @router.get("/sessions/{session_id}/turns")

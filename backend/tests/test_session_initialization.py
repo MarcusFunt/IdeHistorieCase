@@ -207,6 +207,31 @@ async def test_duplicate_create_retries_reuse_the_pinned_session_and_job(v2_clie
     assert mismatched_retry.status_code == 409
 
 
+async def test_draft_v2_release_cannot_start_a_game_session(tmp_path):
+    manifest, slug = make_release(tmp_path)
+    raw = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    raw["content_items"][0]["review_status"] = "draft"
+    manifest.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    loaded = load_scenario(manifest)
+    async with session_factory() as db, db.begin():
+        imported = await import_scenario(db, loaded)
+        await activate_scenario_version(db, slug, imported.scenario.version)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/sessions",
+            json={"scenario": slug},
+            headers=create_headers(request_key=uuid4(), capability=secrets.token_urlsafe(32)),
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "SCENARIO_NOT_PLAYABLE"
+
+
 async def test_concurrent_claims_fence_restarted_worker_and_commit_one_opening(v2_client):
     client, slug = v2_client
     first = await create_v2_session(client, slug)

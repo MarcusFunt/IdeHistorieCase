@@ -152,7 +152,7 @@ async def test_sessions_resolve_active_version_role_and_keep_old_pin(scenario_cl
     assert resumed_new.json()["player_role_id"] == "british_adviser"
 
 
-async def test_active_v2_session_queues_initialization_without_becoming_playable(
+async def test_active_playable_v2_release_queues_initialization_until_opening_is_ready(
     scenario_client, tmp_path
 ):
     bundle = tmp_path / "versailles-1919"
@@ -164,6 +164,8 @@ async def test_active_v2_session_queues_initialization_without_becoming_playable
     path.write_text(
         path.read_text(encoding="utf-8").replace(
             'version: "3.0-ai"', f'version: "{v2_version}"'
+        ).replace(
+            "review_status: draft", "review_status: author_reviewed"
         ),
         encoding="utf-8",
     )

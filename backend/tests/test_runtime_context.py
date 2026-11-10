@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 import yaml
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import ScenarioContentItem, ScenarioVersion
 from app.rag.policy import EvidenceContext, EvidencePassage, PassageApproval, is_eligible
@@ -141,6 +142,11 @@ class _FakeDb:
 
     async def commit(self):
         self.commits += 1
+
+
+class _UnavailableDb(_FakeDb):
+    async def execute(self, _statement):
+        raise SQLAlchemyError("temporary database outage")
 
 
 class _FakeEmbedder:
@@ -277,6 +283,23 @@ def prepared_context(
     embedder = _FakeEmbedder()
     rag = RagSearchService(_FakeRetrievalRepository(candidates or []), embedder)
     return db, session, rag, embedder
+
+
+@pytest.mark.asyncio
+async def test_database_read_failure_is_distinct_from_invalid_saved_content():
+    db, session, rag, _ = prepared_context(state={"world_date": "1888-05-01"})
+    db = _UnavailableDb(db.scenario, db.rows)
+
+    with pytest.raises(ContextBuildFailure) as failure:
+        await build_session_context(
+            db,
+            session,
+            stage="turn",
+            query="Undersøg sagen.",
+            retrieval_service=rag,
+        )
+
+    assert failure.value.status == "database_failure"
 
 
 @pytest.mark.asyncio

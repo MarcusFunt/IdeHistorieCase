@@ -5,6 +5,8 @@ import os
 import secrets
 import shutil
 from dataclasses import dataclass
+from datetime import date
+from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -19,6 +21,9 @@ from app.db.models import (
     CommittedTurn,
     GameEvent,
     GameSession,
+    HistoricalPassage,
+    HistoricalPassageReview,
+    RagScenarioPolicy,
     SessionInitializationJob,
     TurnRequest,
 )
@@ -27,6 +32,12 @@ from app.scenarios.loader import load_scenario
 from app.scenarios.repository import activate_scenario_version, import_scenario
 
 SOURCE_RELEASE = Path(__file__).parent / "fixtures/scenarios/industrial-inquiry/1.0.yaml"
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def dispose_shared_engine_after_each_test():
+    yield
+    await engine.dispose()
 
 
 @dataclass
@@ -115,17 +126,80 @@ async def turn_harness(tmp_path):
     shutil.copytree(SOURCE_RELEASE.parent / "notes", target / "notes")
     raw = yaml.safe_load(SOURCE_RELEASE.read_text(encoding="utf-8"))
     raw["slug"] = slug
-    raw["source_refs"] = []
+    raw["source_refs"] = ["R01"]
     raw["content_items"][0]["source_refs"] = []
     manifest = target / SOURCE_RELEASE.name
     manifest.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    evidence_policy = {
+        "scenario_slug": slug,
+        "scenario_version": raw["version"],
+        "policy_version": 1,
+        "citation_ready": True,
+        "source_access": [
+            {
+                "source_id": "R01",
+                "in_world_available_from": "1888-05-01",
+                "scope": "period_statement_paraphrase_only",
+                "actor_ids": ["factory_owner"],
+                "citation_ready": True,
+            }
+        ],
+    }
+    manifest.with_name(f"{manifest.stem}_evidence.yaml").write_text(
+        yaml.safe_dump(evidence_policy, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
     )
     loaded = load_scenario(manifest)
     session_ids: set[UUID] = set()
     try:
         async with session_factory() as db, db.begin():
             imported = await import_scenario(db, loaded)
+            corpus_hash = "a" * 64
+            db.add(
+                RagScenarioPolicy(
+                    id=uuid4(),
+                    scenario_version_id=imported.scenario.id,
+                    scenario_slug=slug,
+                    scenario_version=raw["version"],
+                    phase_world_dates={"opening": "1888-05-01"},
+                    corpus_sha256=corpus_hash,
+                )
+            )
+            passage_text = "Arbejdsdagen begyndte ved daggry ifølge testjournalen."
+            passage = HistoricalPassage(
+                id=uuid4(),
+                scenario_version_id=imported.scenario.id,
+                scenario_slug=slug,
+                scenario_version=raw["version"],
+                passage_key="turn-harness-source",
+                source_identifier="R01",
+                source_title="Test journal",
+                source_url="https://example.test/journal",
+                source_anchor="side 1",
+                rights_basis="Controlled integration fixture",
+                passage_text=passage_text,
+                passage_sha256=sha256(passage_text.encode("utf-8")).hexdigest(),
+                document_date=date(1888, 5, 1),
+                in_world_available_from=date(1888, 5, 1),
+                postgame_only=False,
+                actor_ids=["factory_owner"],
+                visibility_scope="actor_limited",
+                corpus_sha256=corpus_hash,
+            )
+            db.add(passage)
+            await db.flush()
+            db.add(
+                HistoricalPassageReview(
+                    id=uuid4(),
+                    passage_id=passage.id,
+                    revision=1,
+                    review_status="approved",
+                    rights_status="approved",
+                    reviewer="integration-fixture",
+                )
+            )
             await activate_scenario_version(db, slug, imported.scenario.version)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"

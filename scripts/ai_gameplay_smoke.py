@@ -118,8 +118,8 @@ async def run_smoke() -> dict:
             resumed_state = resumed_body["state"]
 
             actions = [
-                "Jeg vil sammenholde lønregnskaberne med fabrikkens arbejdsplaner.",
-                "Bed vidnet forklare, hvem der havde adgang til regnskaberne.",
+                "Bed den britiske delegation forklare sine vigtigste hensyn. Svar kun med dialog og fortælling; foreslå ingen ændringer i tilstanden.",
+                "Spørg hvilke berørte grupper der mangler indflydelse. Svar kun med dialog og fortælling; foreslå ingen ændringer i tilstanden.",
                 "Jeg foreslår uventet, at vi afbryder mødet og inviterer alle til at synge på gårdspladsen.",
             ]
             turn_trace = []
@@ -194,6 +194,8 @@ async def run_smoke() -> dict:
                 or len(history.json().get("turns", [])) != 3
                 or history.json().get("turns")
                 != [item["result"] for item in turn_trace]
+                or resumed.json().get("state")
+                != turn_trace[-1]["result"].get("state")
             ):
                 raise RuntimeError("turn state or history changed after reload")
             resumed_state = resumed.json()["state"]
@@ -234,6 +236,10 @@ async def run_smoke() -> dict:
         "eligible_evidence": provenance.get("eligible_evidence", []),
         "turn_trace": turn_trace,
         "turns_reload_verified": len(turn_trace) == 3,
+        "final_state_matches_last_turn_result": (
+            isinstance(resumed_state, dict)
+            and resumed_state == turn_trace[-1]["result"].get("state")
+        ),
     }
 
 

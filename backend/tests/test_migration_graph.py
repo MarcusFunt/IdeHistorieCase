@@ -12,7 +12,8 @@ def test_migration_graph_has_one_linear_head() -> None:
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0013_turn_repair_budget"]
+    assert scripts.get_heads() == ["0014_turn_retry_diagnostics"]
+    assert scripts.get_revision("0014_turn_retry_diagnostics").down_revision == "0013_turn_repair_budget"
     assert scripts.get_revision("0013_turn_repair_budget").down_revision == "0012_initialization_provenance"
     assert scripts.get_revision("0012_initialization_provenance").down_revision == "0011_session_initialization"
     assert scripts.get_revision("0011_session_initialization").down_revision == "0010_manifest_guard"

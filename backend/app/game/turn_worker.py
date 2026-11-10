@@ -5,7 +5,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -13,12 +13,23 @@ from sqlalchemy import and_, func, or_, select, update
 
 from app.core.settings import Settings, get_settings
 from app.db.connection import session_factory
-from app.db.models import CommittedTurn, GameEvent, GameSession, ScenarioVersion, TurnRequest
+from app.db.models import (
+    CommittedTurn,
+    GameEvent,
+    GameSession,
+    HistoricalPassage,
+    HistoricalPassageReview,
+    ScenarioVersion,
+    TurnRequest,
+)
 from app.game.interpreter import ScenarioTurnContext
+from app.rag.policy import EvidenceContext, EvidencePassage, PassageApproval, is_eligible
 from app.runtime.orchestrator import TurnGeneration, TurnGenerationFailure
 from app.runtime.state import project_state
 from app.scenarios.engine import ScenarioEventProposal, apply_event_proposals
+from app.scenarios.evidence import available_source_ids, citation_source_ids
 from app.scenarios.schema import ScenarioDefinition
+from app.scenarios.schema_v2 import ScenarioDefinitionV2
 
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
@@ -36,6 +47,7 @@ class Claim:
     repair_used: bool
     runtime_version: str
     scenario_context: ScenarioTurnContext | None = None
+    attempt_metadata: tuple[dict, ...] = ()
 
 
 class LegacyProposal(BaseModel):
@@ -51,6 +63,118 @@ class LegacyProposal(BaseModel):
         if not value.strip():
             raise ValueError("reply must not be blank")
         return value
+
+
+async def _revalidate_turn_citations(db, game: GameSession, scenario, generation) -> None:
+    cited_ids = {
+        evidence_id
+        for event in generation.events
+        if getattr(event, "event_type", None) == "historical_claim_recorded"
+        for evidence_id in event.evidence_ids
+    }
+    if not cited_ids:
+        return
+
+    supplied = generation.provenance.get("eligible_evidence")
+    by_id = {
+        item.get("passage_id"): item
+        for item in supplied or []
+        if isinstance(item, dict) and isinstance(item.get("passage_id"), str)
+    }
+    if not cited_ids <= by_id.keys():
+        raise TurnGenerationFailure("MODEL_OUTPUT_INVALID", retryable=False)
+    try:
+        passage_ids = sorted((UUID(value) for value in cited_ids), key=str)
+        definition = ScenarioDefinitionV2.model_validate(scenario.definition)
+        role = next(item for item in definition.roles if item.id == game.player_role_id)
+        actor = next(item for item in definition.actors if item.id == role.actor_id)
+        world_date = date.fromisoformat(game.state["world_date"])
+        evidence_context = EvidenceContext(
+            scenario_version_id=game.scenario_version_id,
+            scenario_slug=scenario.slug,
+            scenario_version=scenario.version,
+            actor_id=actor.id,
+            world_date=world_date,
+            mode="gameplay",
+            evidence_policy=scenario.evidence_policy,
+        )
+        available_sources = available_source_ids(
+            scenario.evidence_policy,
+            world_date,
+            actor_id=actor.id,
+            mode="gameplay",
+        )
+        citable_sources = citation_source_ids(
+            scenario.evidence_policy, available_sources
+        )
+    except (KeyError, StopIteration, TypeError, ValueError) as exc:
+        raise TurnGenerationFailure("TURN_CONTEXT_INVALID", retryable=False) from exc
+
+    passages = list(
+        (
+            await db.execute(
+                select(HistoricalPassage)
+                .where(HistoricalPassage.id.in_(passage_ids))
+                .order_by(HistoricalPassage.id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if len(passages) != len(passage_ids):
+        raise TurnGenerationFailure("EVIDENCE_UNAVAILABLE", retryable=True, stage="commit")
+
+    for passage in passages:
+        recorded = by_id[str(passage.id)]
+        if (
+            recorded.get("passage_sha256") != passage.passage_sha256
+            or passage.scenario_version_id != game.scenario_version_id
+            or passage.source_identifier not in citable_sources
+        ):
+            raise TurnGenerationFailure("EVIDENCE_UNAVAILABLE", retryable=True, stage="commit")
+        review = (
+            await db.execute(
+                select(HistoricalPassageReview)
+                .where(HistoricalPassageReview.passage_id == passage.id)
+                .order_by(HistoricalPassageReview.revision.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if (
+            review is None
+            or review.review_status != "approved"
+            or review.rights_status != "approved"
+            or recorded.get("review_revision") != review.revision
+        ):
+            raise TurnGenerationFailure("EVIDENCE_UNAVAILABLE", retryable=True, stage="commit")
+        candidate = EvidencePassage(
+            id=passage.id,
+            scenario_version_id=passage.scenario_version_id,
+            scenario_slug=passage.scenario_slug,
+            scenario_version=passage.scenario_version,
+            passage_key=passage.passage_key,
+            source_identifier=passage.source_identifier,
+            source_title=passage.source_title,
+            source_url=passage.source_url,
+            source_anchor=passage.source_anchor,
+            text=passage.passage_text,
+            passage_sha256=passage.passage_sha256,
+            document_date=passage.document_date,
+            in_world_available_from=passage.in_world_available_from,
+            postgame_only=passage.postgame_only,
+            actor_ids=tuple(passage.actor_ids),
+            visibility_scope=passage.visibility_scope,
+        )
+        if not is_eligible(
+            candidate,
+            evidence_context,
+            PassageApproval(
+                review_status=review.review_status,
+                rights_status=review.rights_status,
+                revision=review.revision,
+            ),
+            scenario.evidence_policy,
+        ):
+            raise TurnGenerationFailure("EVIDENCE_UNAVAILABLE", retryable=True, stage="commit")
 
 
 async def claim_next(settings: Settings | None = None) -> Claim | None:
@@ -80,8 +204,10 @@ async def claim_next(settings: Settings | None = None) -> Claim | None:
         if turn is None:
             return None
         if turn.attempts >= MAX_ATTEMPTS:
-            turn.status = "failed"
+            turn.status = "failed" if turn.client_retry_used else "retryable_failure"
             turn.failure_code = "MAX_ATTEMPTS_EXCEEDED"
+            turn.failure_stage = "worker"
+            turn.failure_message = "Turn processing attempts are exhausted."
             turn.lease_token = None
             turn.leased_until = None
             turn.updated_at = now
@@ -92,7 +218,6 @@ async def claim_next(settings: Settings | None = None) -> Claim | None:
         turn.attempts += 1
         turn.lease_token = token
         turn.leased_until = now + timedelta(seconds=settings.turn_lease_seconds)
-        turn.failure_code = None
         turn.updated_at = now
         game = await db.get(GameSession, turn.session_id)
         scenario = await db.get(ScenarioVersion, game.scenario_version_id) if game else None
@@ -123,6 +248,7 @@ async def claim_next(settings: Settings | None = None) -> Claim | None:
             repair_used=turn.repair_used,
             runtime_version=game.runtime_version,
             scenario_context=context,
+            attempt_metadata=tuple(turn.attempt_metadata or ()),
         )
 
 
@@ -164,6 +290,50 @@ async def mark_repair_attempt(claim: Claim) -> bool:
             .values(repair_used=True, updated_at=func.clock_timestamp())
         )
         return result.rowcount == 1
+
+
+async def record_attempt_metadata(claim: Claim, metadata: dict) -> bool:
+    """Append only allowlisted diagnostic metadata while the claim remains live."""
+    allowed = {
+        "attempt_number",
+        "call_number",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "outcome",
+        "failure_code",
+        "validation_codes",
+        "output_sha256",
+        "prompt_sha256",
+        "provider_request_id",
+        "requested_model",
+        "served_model",
+        "model_revision",
+        "prompt_tokens",
+        "completion_tokens",
+    }
+    safe = {key: value for key, value in metadata.items() if key in allowed}
+    async with session_factory() as db, db.begin():
+        turn = (
+            await db.execute(
+                select(TurnRequest)
+                .where(TurnRequest.id == claim.request_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        now = (await db.execute(select(func.clock_timestamp()))).scalar_one()
+        if (
+            turn is None
+            or turn.session_id != claim.session_id
+            or turn.status != "running"
+            or turn.lease_token != claim.lease_token
+            or turn.leased_until is None
+            or turn.leased_until <= now
+        ):
+            return False
+        turn.attempt_metadata = [*(turn.attempt_metadata or []), safe][-7:]
+        turn.updated_at = now
+        return True
 
 
 async def complete_claim(claim: Claim, proposal: dict | TurnGeneration) -> bool:
@@ -226,6 +396,15 @@ async def complete_claim(claim: Claim, proposal: dict | TurnGeneration) -> bool:
                 turn.leased_until = None
                 turn.updated_at = now
                 return False
+            pinned_scenario = generation.provenance.get("scenario")
+            if (
+                not isinstance(pinned_scenario, dict)
+                or pinned_scenario.get("release_id") != str(game.scenario_version_id)
+                or pinned_scenario.get("slug") != scenario.slug
+                or pinned_scenario.get("version") != scenario.version
+            ):
+                raise TurnGenerationFailure("TURN_CONTEXT_INVALID", retryable=False)
+            await _revalidate_turn_citations(db, game, scenario, generation)
             accepted_events = [
                 event.model_dump(mode="json") for event in generation.events
             ]
@@ -318,6 +497,8 @@ async def complete_claim(claim: Claim, proposal: dict | TurnGeneration) -> bool:
         game.state = {**next_state, "last_turn_number": number}
         turn.status = "completed"
         turn.failure_code = None
+        turn.failure_stage = None
+        turn.failure_message = None
         turn.lease_token = None
         turn.leased_until = None
         turn.updated_at = now
@@ -329,6 +510,8 @@ async def fail_claim(
     failure_code: str = "INTERNAL_ERROR",
     *,
     retryable: bool = True,
+    failure_stage: str = "worker",
+    failure_message: str = "The turn could not be processed.",
 ) -> bool:
     async with session_factory() as db, db.begin():
         turn = (
@@ -349,6 +532,8 @@ async def fail_claim(
         ):
             return False
         turn.failure_code = failure_code
+        turn.failure_stage = failure_stage
+        turn.failure_message = failure_message
         turn.lease_token = None
         turn.leased_until = None
         turn.updated_at = now
@@ -358,7 +543,7 @@ async def fail_claim(
                 seconds=min(2 ** (turn.attempts - 1), 30)
             )
         else:
-            turn.status = "failed"
+            turn.status = "failed" if turn.client_retry_used or not retryable else "retryable_failure"
         return True
 
 
@@ -411,7 +596,9 @@ async def process_next(
     async def run_generation():
         if orchestrator is not None:
             generated = await orchestrator.generate(
-                claim, authorize_repair=lambda: mark_repair_attempt(claim)
+                claim,
+                authorize_repair=lambda: mark_repair_attempt(claim),
+                record_attempt=lambda metadata: record_attempt_metadata(claim, metadata),
             )
             return await complete_claim(claim, generated)
         if provider is not None:
@@ -450,14 +637,21 @@ async def process_next(
                 logger.warning("Turn processing failed (%s)", type(exc).__name__)
                 failure = TurnGenerationFailure("INTERNAL_ERROR", retryable=True)
     finally:
-        for task in (heartbeat_task, lease_lost_task):
-            task.cancel()
-        for task in (heartbeat_task, lease_lost_task):
+        for task in (generation_task, heartbeat_task, lease_lost_task):
+            if not task.done():
+                task.cancel()
+        for task in (generation_task, heartbeat_task, lease_lost_task):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
 
     if failure is not None:
-        await fail_claim(claim, failure.code, retryable=failure.retryable)
+        await fail_claim(
+            claim,
+            failure.code,
+            retryable=failure.retryable,
+            failure_stage=failure.stage,
+            failure_message=failure.message,
+        )
     return True
 
 

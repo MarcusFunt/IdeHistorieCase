@@ -90,7 +90,13 @@ async def test_ingestion_stages_idempotently_and_reviews_append_new_revisions(tm
             assert passage.passage_sha256 == hashlib.sha256(
                 b"A checked historical passage."
             ).hexdigest()
-            assert (await db.execute(select(HistoricalPassageReview))).scalars().all() == []
+            assert (
+                await db.execute(
+                    select(HistoricalPassageReview).where(
+                        HistoricalPassageReview.passage_id == passage.id
+                    )
+                )
+            ).scalars().all() == []
             assert (await db.execute(select(HistoricalPassageEmbedding))).scalars().one().model_id == "fake-embed-v1"
 
             repeated = await ingest_corpus(db, loaded, [vector], model_id="fake-embed-v1")
@@ -108,9 +114,13 @@ async def test_ingestion_stages_idempotently_and_reviews_append_new_revisions(tm
                 rights_status="pending", notes="Review withdrawn for reassessment.",
             )
             assert (first.revision, second.revision) == (1, 2)
-            reviews = (await db.execute(select(HistoricalPassageReview).order_by(
-                HistoricalPassageReview.revision
-            ))).scalars().all()
+            reviews = (
+                await db.execute(
+                    select(HistoricalPassageReview)
+                    .where(HistoricalPassageReview.passage_id == passage.id)
+                    .order_by(HistoricalPassageReview.revision)
+                )
+            ).scalars().all()
             assert [row.review_status for row in reviews] == ["approved", "revoked"]
 
             changed = load_corpus(write_corpus(tmp_path / "changed", "Different passage."))
