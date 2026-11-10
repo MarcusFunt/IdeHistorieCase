@@ -126,6 +126,10 @@ class _FakeDb:
     def __init__(self, scenario, rows):
         self.scenario = scenario
         self.rows = rows
+        self.new = set()
+        self.dirty = set()
+        self.deleted = set()
+        self.commits = 0
 
     async def get(self, model, identity):
         if model is ScenarioVersion and identity == self.scenario.id:
@@ -134,6 +138,9 @@ class _FakeDb:
 
     async def execute(self, _statement):
         return _FakeResult(self.rows)
+
+    async def commit(self):
+        self.commits += 1
 
 
 class _FakeEmbedder:
@@ -753,6 +760,38 @@ async def test_retrieval_failure_is_structured_and_does_not_mutate_session_state
         "diagnostic": "historical evidence retrieval failed",
     }
     assert session.state == before
+
+
+@pytest.mark.asyncio
+async def test_initializer_context_releases_read_transaction_before_retrieval():
+    class ObserveTransactionRelease:
+        async def search(self, *_args, **_kwargs):
+            assert db.commits == 1
+            return SimpleNamespace(status="RAG_NO_EVIDENCE", passages=[])
+
+    definition_ = definition(["R01"])
+    db = _FakeDb(
+        scenario_row(definition_, evidence_policy(["R01"])),
+        content_rows(
+            definition_, {item.key: item.key for item in definition_.content_items}
+        ),
+    )
+    session = SimpleNamespace(
+        scenario_version_id=RELEASE_ID,
+        player_role_id="investigator",
+        state={},
+    )
+
+    await build_session_context(
+        db,
+        session,
+        stage="initialization",
+        query="arbejdsvilkår",
+        retrieval_service=ObserveTransactionRelease(),
+        release_transaction_before_retrieval=True,
+    )
+
+    assert db.commits == 1
 
 
 @pytest.mark.asyncio

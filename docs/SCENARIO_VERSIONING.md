@@ -26,11 +26,11 @@ The definition hash covers only the B1 manifest. A separate byte-exact bundle ha
 
 ## Runtime compatibility and readiness
 
-The current turn worker and session runtime support schema v1 only. Schema-v2 bundles can be structurally validated, imported inactive, inspected from SQL, and reported by the schema-aware catalog endpoint. The activation service rejects them with an explicit unsupported-runtime error, and session creation also rejects a v2 row if an older deployment or direct database operation left it active. A structurally valid manifest is not evidence of runtime support.
+The current turn worker and session runtime support schema v1 only. Schema-v2 bundles can be structurally validated, imported inactive, inspected from SQL, and reported by the schema-aware catalog endpoint. After manifest and SQL content integrity checks pass, activation makes a v2 release selectable for new sessions; it does not mark the release playable. V2 sessions require both `Idempotency-Key` and a client-generated `X-Session-Capability`, remain uninitialized while their durable opening job is pending or failed, and cannot submit turns until both initialization and runtime support are ready. V1 session creation continues to use a server-issued capability.
 
 Use `validate` for structural validation. Add `--json` for a machine-readable report that identifies checks which require SQL. Use `readiness <slug> --version <version>` (also available as `playable-check`) for database-backed schema validity, publication integrity, runtime compatibility, author-content review, and evidence-readiness results. The command emits JSON and exits nonzero when the release is not fully playable. It only reports readiness; it does not activate a release.
 
-Schema-v1 activation and session behavior remain supported. The v2 Versailles intake is intentionally inactive and its opening briefing remains draft; its readiness report must not describe it as playable or evidence-ready.
+Schema-v1 activation and session behavior remain supported. The v2 Versailles intake is intentionally inactive and its opening briefing remains draft; its readiness report must not describe it as playable or evidence-ready. Activation requires valid author content, but it does not approve draft content or imply runtime playability.
 
 Publish using the developer CLI from the repository root:
 

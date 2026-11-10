@@ -42,7 +42,12 @@ async def readyz():
 @app.get("/api/v1/status")
 async def status():
     """Private diagnostics for M1; do not expose to an unauthenticated public gateway."""
-    if not await database_ready():
+    try:
+        async with engine.connect() as connection:
+            database_name = (
+                await connection.execute(text("SELECT current_database()"))
+            ).scalar_one()
+    except Exception:
         return JSONResponse(status_code=503, content={"database": False, "worker": "unknown"})
 
     settings = get_settings()
@@ -57,12 +62,18 @@ async def status():
         return JSONResponse(status_code=503, content={"database": True, "worker": "unknown"})
 
     if row is None:
-        return {"database": True, "worker": "not_started", "inference": "unknown"}
+        return {
+            "database": True,
+            "database_name": database_name,
+            "worker": "not_started",
+            "inference": "unknown",
+        }
 
     age = (datetime.now(timezone.utc) - row.last_seen).total_seconds()
     stale = age > settings.worker_stale_seconds
     return {
         "database": True,
+        "database_name": database_name,
         "worker": "stale" if stale else "running",
         "inference": "unknown" if stale else ("ready" if row.inference_ready else "degraded"),
         "worker_last_seen": row.last_seen.isoformat(),

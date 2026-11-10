@@ -1,6 +1,9 @@
+import os
+
 import httpx
 import pytest
 
+from app.db.connection import engine
 from app.main import app
 
 
@@ -27,3 +30,17 @@ async def test_ready_with_healthy_database(monkeypatch):
         response = await c.get("/readyz")
         assert response.status_code == 200
         assert response.json()["status"] == "ready"
+
+
+@pytest.mark.skipif(os.getenv("DDU_TEST_DB") != "1", reason="Postgres not configured")
+@pytest.mark.asyncio
+async def test_private_status_reports_the_database_used_by_the_api():
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            response = await c.get("/api/v1/status")
+    finally:
+        await engine.dispose()
+    assert response.status_code == 200
+    assert response.json()["database_name"] == os.environ["DB_NAME"]

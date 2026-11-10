@@ -101,6 +101,7 @@ async def test_upgrade_from_populated_m2_database_preserves_sessions_and_turn_hi
                     (SELECT count(*) FROM committed_turns WHERE id=$3) AS turns,
                     (SELECT count(*) FROM game_events WHERE id=$4) AS events,
                     (SELECT player_role_id FROM game_sessions WHERE id=$1) AS role_id,
+                    (SELECT runtime_version FROM game_sessions WHERE id=$1) AS runtime_version,
                     (SELECT is_active FROM scenario_versions
                      WHERE slug='versailles-1919' AND version='1') AS legacy_active,
                     (to_regclass('public.scenario_content_items') IS NOT NULL) AS has_v2_content_table
@@ -116,6 +117,7 @@ async def test_upgrade_from_populated_m2_database_preserves_sessions_and_turn_hi
                 "turns": 1,
                 "events": 1,
                 "role_id": None,
+                "runtime_version": "v1_legacy",
                 "legacy_active": True,
                 "has_v2_content_table": True,
             }
@@ -212,7 +214,7 @@ async def test_upgrade_from_previous_scenario_revision_preserves_release_and_con
         try:
             preserved = await db.fetchrow(
                 """
-                SELECT v.is_active, v.schema_version, v.bundle_hash, c.item_key,
+                    SELECT v.is_active, v.schema_version, v.runtime_version, v.bundle_hash, c.item_key,
                        c.body, c.sha256,
                        (SELECT version_num FROM alembic_version) AS migration_head
                 FROM scenario_versions AS v
@@ -224,13 +226,14 @@ async def test_upgrade_from_previous_scenario_revision_preserves_release_and_con
             assert dict(preserved) == {
                 "is_active": False,
                 "schema_version": 2,
+                "runtime_version": "v2_ai",
                 "bundle_hash": loaded.bundle_hash,
                 "item_key": loaded.definition.content_items[0].key,
                 "body": loaded.content_items[loaded.definition.content_items[0].key],
                 "sha256": sha256(
                     loaded.content_items[loaded.definition.content_items[0].key].encode("utf-8")
                 ).hexdigest(),
-                "migration_head": "0010_manifest_guard",
+                "migration_head": "0012_initialization_provenance",
             }
         finally:
             await db.close()
@@ -268,9 +271,9 @@ async def test_downgrade_refuses_to_drop_published_v2_content():
                 await db.execute(
                     """
                     INSERT INTO scenario_versions
-                        (id, slug, version, initial_state, schema_version, definition,
+                        (id, slug, version, initial_state, schema_version, runtime_version, definition,
                          content_hash, bundle_hash, evidence_policy, is_active)
-                    VALUES ($1, $2, $3, $4::jsonb, 2, $5::jsonb, $6, $7, $8::jsonb, false)
+                    VALUES ($1, $2, $3, $4::jsonb, 2, 'v2_ai', $5::jsonb, $6, $7, $8::jsonb, false)
                     """,
                     scenario_id,
                     loaded.definition.slug,
@@ -334,8 +337,260 @@ async def test_downgrade_refuses_to_drop_published_v2_content():
                 scenario_id,
             )
             assert dict(preserved) == {
-                "migration_head": "0010_manifest_guard",
+                "migration_head": "0012_initialization_provenance",
                 "content_rows": len(loaded.definition.content_items),
+            }
+        finally:
+            await db.close()
+    finally:
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        await admin.close()
+
+
+@pytest.mark.asyncio
+async def test_downgrade_refuses_to_drop_pending_initialization_and_create_key():
+    database = f"ddu_migration_init_downgrade_{uuid4().hex[:12]}"
+    connection_options = {
+        "host": os.environ.get("DB_HOST", "localhost"),
+        "port": int(os.environ.get("DB_PORT", "5432")),
+        "user": os.environ.get("DB_USER", "ddu_test"),
+        "password": os.environ.get("DB_PASSWORD", "ddu_test_password_only"),
+    }
+    session_id = uuid4()
+    job_id = uuid4()
+    admin = await asyncpg.connect(database="postgres", **connection_options)
+    try:
+        await admin.execute(f'CREATE DATABASE "{database}"')
+        migration_env = {**os.environ, "DB_NAME": database}
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=BACKEND,
+            env=migration_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        db = await asyncpg.connect(database=database, **connection_options)
+        try:
+            async with db.transaction():
+                await db.execute(
+                    """
+                    INSERT INTO game_sessions
+                        (id, scenario_version_id, capability_hash, creation_key_hash,
+                         capability_expires_at, turn_number, state)
+                    VALUES ($1, $2, $3, $4, now() + interval '1 day', 0, '{}'::jsonb)
+                    """,
+                    session_id,
+                    "d19c3d68-d9e7-4ed8-9c29-316a4d830001",
+                    "a" * 64,
+                    "b" * 64,
+                )
+                await db.execute(
+                    """
+                    INSERT INTO session_initialization_jobs (id, session_id, status)
+                    VALUES ($1, $2, 'queued')
+                    """,
+                    job_id,
+                    session_id,
+                )
+        finally:
+            await db.close()
+
+        downgrade = subprocess.run(
+            [sys.executable, "-m", "alembic", "downgrade", "0010_manifest_guard"],
+            cwd=BACKEND,
+            env=migration_env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert downgrade.returncode != 0
+        assert "cannot drop durable session initialization data" in downgrade.stderr
+
+        db = await asyncpg.connect(database=database, **connection_options)
+        try:
+            preserved = await db.fetchrow(
+                """
+                SELECT (SELECT version_num FROM alembic_version) AS migration_head,
+                       (SELECT count(*) FROM session_initialization_jobs WHERE id=$1) AS jobs,
+                       (SELECT creation_key_hash FROM game_sessions WHERE id=$2) AS create_key
+                """,
+                job_id,
+                session_id,
+            )
+            assert dict(preserved) == {
+                "migration_head": "0012_initialization_provenance",
+                "jobs": 1,
+                "create_key": "b" * 64,
+            }
+        finally:
+            await db.close()
+    finally:
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        await admin.close()
+
+
+@pytest.mark.asyncio
+async def test_downgrade_refuses_to_drop_committed_initialization_provenance():
+    database = f"ddu_migration_provenance_{uuid4().hex[:12]}"
+    connection_options = {
+        "host": os.environ.get("DB_HOST", "localhost"),
+        "port": int(os.environ.get("DB_PORT", "5432")),
+        "user": os.environ.get("DB_USER", "ddu_test"),
+        "password": os.environ.get("DB_PASSWORD", "ddu_test_password_only"),
+    }
+    session_id = uuid4()
+    job_id = uuid4()
+    admin = await asyncpg.connect(database="postgres", **connection_options)
+    try:
+        await admin.execute(f'CREATE DATABASE "{database}"')
+        migration_env = {**os.environ, "DB_NAME": database}
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=BACKEND,
+            env=migration_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        db = await asyncpg.connect(database=database, **connection_options)
+        try:
+            async with db.transaction():
+                await db.execute(
+                    """
+                    INSERT INTO game_sessions
+                        (id, scenario_version_id, capability_hash, creation_key_hash,
+                         capability_expires_at, turn_number, state)
+                    VALUES ($1, $2, $3, $4, now() + interval '1 day', 0, '{}'::jsonb)
+                    """,
+                    session_id,
+                    "d19c3d68-d9e7-4ed8-9c29-316a4d830001",
+                    "c" * 64,
+                    "d" * 64,
+                )
+                await db.execute(
+                    """
+                    INSERT INTO session_initialization_jobs
+                        (id, session_id, status, repair_used, attempt_metadata, result)
+                    VALUES ($1, $2, 'ready', true, $3::jsonb, $4::jsonb)
+                    """,
+                    job_id,
+                    session_id,
+                    json.dumps([{"attempt_number": 1, "outcome": "accepted"}]),
+                    json.dumps({"opening": {}, "initial_state": {}, "provenance": {}}),
+                )
+        finally:
+            await db.close()
+
+        downgrade = subprocess.run(
+            [sys.executable, "-m", "alembic", "downgrade", "0011_session_initialization"],
+            cwd=BACKEND,
+            env=migration_env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert downgrade.returncode != 0
+        assert "cannot drop initialization repair, provenance, or failure-stage data" in downgrade.stderr
+
+        db = await asyncpg.connect(database=database, **connection_options)
+        try:
+            preserved = await db.fetchrow(
+                """
+                SELECT (SELECT version_num FROM alembic_version) AS migration_head,
+                       repair_used, attempt_metadata, result
+                FROM session_initialization_jobs WHERE id=$1
+                """,
+                job_id,
+            )
+            assert preserved["migration_head"] == "0012_initialization_provenance"
+            assert preserved["repair_used"] is True
+            attempt_metadata = preserved["attempt_metadata"]
+            if isinstance(attempt_metadata, str):
+                attempt_metadata = json.loads(attempt_metadata)
+            assert attempt_metadata == [{"attempt_number": 1, "outcome": "accepted"}]
+            assert "provenance" in preserved["result"]
+        finally:
+            await db.close()
+    finally:
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        await admin.close()
+
+
+@pytest.mark.asyncio
+async def test_downgrade_refuses_to_drop_initialization_failure_stage():
+    database = f"ddu_migration_failure_stage_{uuid4().hex[:12]}"
+    connection_options = {
+        "host": os.environ.get("DB_HOST", "localhost"),
+        "port": int(os.environ.get("DB_PORT", "5432")),
+        "user": os.environ.get("DB_USER", "ddu_test"),
+        "password": os.environ.get("DB_PASSWORD", "ddu_test_password_only"),
+    }
+    session_id = uuid4()
+    job_id = uuid4()
+    admin = await asyncpg.connect(database="postgres", **connection_options)
+    try:
+        await admin.execute(f'CREATE DATABASE "{database}"')
+        migration_env = {**os.environ, "DB_NAME": database}
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=BACKEND,
+            env=migration_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        db = await asyncpg.connect(database=database, **connection_options)
+        try:
+            async with db.transaction():
+                await db.execute(
+                    """
+                    INSERT INTO game_sessions
+                        (id, scenario_version_id, capability_hash, capability_expires_at,
+                         turn_number, state)
+                    VALUES ($1, $2, $3, now() + interval '1 day', 0, '{}'::jsonb)
+                    """,
+                    session_id,
+                    "d19c3d68-d9e7-4ed8-9c29-316a4d830001",
+                    "e" * 64,
+                )
+                await db.execute(
+                    """
+                    INSERT INTO session_initialization_jobs
+                        (id, session_id, status, failure_code, failure_stage)
+                    VALUES ($1, $2, 'failed', 'MODEL_OUTPUT_INVALID', 'validation')
+                    """,
+                    job_id,
+                    session_id,
+                )
+        finally:
+            await db.close()
+
+        downgrade = subprocess.run(
+            [sys.executable, "-m", "alembic", "downgrade", "0011_session_initialization"],
+            cwd=BACKEND,
+            env=migration_env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert downgrade.returncode != 0
+        assert "cannot drop initialization repair, provenance, or failure-stage data" in downgrade.stderr
+
+        db = await asyncpg.connect(database=database, **connection_options)
+        try:
+            preserved = await db.fetchrow(
+                """
+                SELECT (SELECT version_num FROM alembic_version) AS migration_head,
+                       failure_code, failure_stage
+                FROM session_initialization_jobs WHERE id=$1
+                """,
+                job_id,
+            )
+            assert dict(preserved) == {
+                "migration_head": "0012_initialization_provenance",
+                "failure_code": "MODEL_OUTPUT_INVALID",
+                "failure_stage": "validation",
             }
         finally:
             await db.close()

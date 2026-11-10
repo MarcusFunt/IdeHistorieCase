@@ -4,7 +4,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.ai.llm import InferenceClient
+from app.ai.llm import InferenceClient, StructuredOutputError
 
 
 def completion(content, finish_reason="stop"):
@@ -90,6 +90,123 @@ async def test_structured_probe_applies_the_configured_thinking_mode(enable_thin
         result = await client.generate_danish_probe()
         assert result.language == "da"
         assert "garantier" in result.reply
+
+
+@pytest.mark.asyncio
+async def test_generic_structured_output_uses_call_schema_and_records_provider_metadata():
+    schema = {
+        "type": "object",
+        "properties": {"status": {"type": "string", "enum": ["ok"]}},
+        "required": ["status"],
+        "additionalProperties": False,
+    }
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["messages"] == [
+            {"role": "system", "content": "Return status JSON."},
+            {"role": "user", "content": "Say ok."},
+        ]
+        assert body["response_format"]["json_schema"] == {
+            "name": "test_status",
+            "strict": True,
+            "schema": schema,
+        }
+        return httpx.Response(
+            200,
+            json={
+                **completion('{"status":"ok"}'),
+                "id": "req-structured-42",
+                "model": "ddu-narrator",
+                "model_revision": "revision-42",
+                "usage": {"prompt_tokens": 18, "completion_tokens": 4},
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await InferenceClient("http://llm:8080", "ddu-narrator", http).generate_structured(
+            system_prompt="Return status JSON.",
+            user_prompt="Say ok.",
+            schema_name="test_status",
+            response_schema=schema,
+            max_tokens=32,
+        )
+
+    assert result.output == {"status": "ok"}
+    assert result.model_revision == "revision-42"
+    assert result.provider_request_id == "req-structured-42"
+    assert result.prompt_tokens == 18
+    assert result.completion_tokens == 4
+    assert result.duration_ms >= 0
+    assert len(result.raw_output_sha256) == 64
+
+
+@pytest.mark.asyncio
+async def test_generic_structured_output_reports_truncation_with_a_safe_hash():
+    raw = '{"status":"cu'
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=completion(raw, "length"))
+        )
+    ) as http:
+        client = InferenceClient("http://llm:8080", "ddu-narrator", http)
+        with pytest.raises(StructuredOutputError) as rejected:
+            await client.generate_structured(
+                system_prompt="system",
+                user_prompt="user",
+                schema_name="test_status",
+                response_schema={"type": "object"},
+                max_tokens=16,
+            )
+
+    assert rejected.value.code == "truncated_output"
+    assert rejected.value.raw_output == raw
+
+
+@pytest.mark.asyncio
+async def test_structured_output_can_disable_model_thinking_for_json_reliability():
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        return httpx.Response(
+            200,
+            json=completion('{"status":"ok"}'),
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await InferenceClient(
+            "http://llm:8080", "ddu-narrator", http, enable_thinking=True
+        ).generate_structured(
+            system_prompt="system",
+            user_prompt="user",
+            schema_name="test_status",
+            response_schema={"type": "object"},
+            max_tokens=16,
+            enable_thinking=False,
+        )
+
+    assert result.output == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_empty_length_limited_completion_is_classified_as_truncated():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=completion(None, "length"))
+        )
+    ) as http:
+        client = InferenceClient("http://llm:8080", "ddu-narrator", http)
+        with pytest.raises(StructuredOutputError) as rejected:
+            await client.generate_structured(
+                system_prompt="system",
+                user_prompt="user",
+                schema_name="test_status",
+                response_schema={"type": "object"},
+                max_tokens=16,
+            )
+
+    assert rejected.value.code == "truncated_output"
+    assert rejected.value.raw_output is None
 
 
 @pytest.mark.parametrize(

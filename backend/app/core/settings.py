@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(default="http://ddu-llm:8080", min_length=1, max_length=2048)
     llm_model_alias: str = Field(default="ddu-narrator", min_length=1, max_length=128)
     llm_enable_thinking: bool | None = None
+    llm_completion_timeout_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
     rag_embed_base_url: str = Field(default="http://ddu-embed:8080", min_length=1, max_length=2048)
     rag_embed_model_id: str = Field(
         default="Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",

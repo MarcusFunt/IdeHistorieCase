@@ -391,6 +391,7 @@ async def build_session_context(
     budget: ContextBudget | None = None,
     top_k: int | None = None,
     max_chars: int | None = None,
+    release_transaction_before_retrieval: bool = False,
 ) -> SessionPromptContext:
     """Build bounded context from the release pinned by the session.
 
@@ -468,6 +469,16 @@ async def build_session_context(
         actor_id=evidence_context.actor_id,
         mode=mode,
     )
+    if release_transaction_before_retrieval:
+        # The worker supplies a read-only session here. End its SQL transaction
+        # before embeddings/reranking; the worker's retrieval repository uses
+        # separate short-lived sessions for each database operation.
+        if db.new or db.dirty or db.deleted:
+            raise ContextBuildFailure(
+                "validation_failure",
+                "context transaction release requires a read-only database session",
+            )
+        await db.commit()
     retrieved: list[SearchCandidate] = []
     diagnostics: list[str] = []
     if eligible_sources and query.strip():
@@ -524,6 +535,8 @@ async def build_session_context(
             "version": scenario.version,
             "schema_version": 2,
             "release_id": str(scenario.id),
+            "content_hash": scenario.content_hash,
+            "bundle_hash": scenario.bundle_hash,
         },
         "generation_mode": mode,
         "world_date": world_date.isoformat(),

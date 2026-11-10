@@ -6,7 +6,7 @@ SUPPORTED_RUNTIME_SCHEMA_VERSIONS = frozenset({1})
 
 
 class ScenarioRuntimeIncompatible(ValueError):
-    """A structurally valid release cannot be run by this application version."""
+    """A structurally valid release cannot be played by this application version."""
 
 
 @dataclass(frozen=True)
@@ -22,9 +22,17 @@ def runtime_compatibility(scenario) -> RuntimeCompatibility:
     schema_version = scenario.schema_version
     definition = scenario.definition
     declared_version = definition.get("schema_version") if isinstance(definition, dict) else None
-    compatible = (
+    expected_runtime = {1: "v1_legacy", 2: "v2_ai"}.get(schema_version)
+    stored_runtime = getattr(scenario, "runtime_version", expected_runtime)
+    legacy_stub = (
+        schema_version is None
+        and definition is None
+        and stored_runtime == "v1_legacy"
+    )
+    compatible = legacy_stub or (
         type(schema_version) is int
         and schema_version == declared_version
+        and stored_runtime == expected_runtime
         and schema_version in SUPPORTED_RUNTIME_SCHEMA_VERSIONS
     )
     return RuntimeCompatibility(
@@ -36,7 +44,7 @@ def runtime_compatibility(scenario) -> RuntimeCompatibility:
 
 
 def require_runtime_compatible(scenario) -> None:
-    """Fail before activation or session creation when this runtime cannot play it."""
+    """Guard operations that require the complete playable runtime for a release."""
     compatibility = runtime_compatibility(scenario)
     if compatibility.compatible:
         return
@@ -44,5 +52,5 @@ def require_runtime_compatible(scenario) -> None:
     raise ScenarioRuntimeIncompatible(
         f"{scenario.slug}@{scenario.version}: schema version {version} is not supported by "
         f"this runtime (supported: {', '.join(map(str, compatibility.supported_schema_versions))}); "
-        "keep the release inactive until runtime support is implemented"
+        "the release is not playable until runtime support is implemented"
     )

@@ -1,6 +1,7 @@
 """Session-scoped M2 API; generation is handled by the separate worker."""
 import hashlib
 import hmac
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
@@ -10,11 +11,23 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.connection import session_factory
-from app.db.models import CommittedTurn, GameSession, ScenarioVersion, TurnRequest
+from app.db.models import (
+    CommittedTurn,
+    GameSession,
+    ScenarioVersion,
+    SessionInitializationJob,
+    TurnRequest,
+)
+from app.game.initialization import (
+    InitializationNotRetryable,
+    enqueue_initialization,
+    get_session_job,
+    request_retry,
+)
 from app.scenarios.repository import get_active_scenario
 from app.scenarios.runtime_compatibility import (
     ScenarioRuntimeIncompatible,
@@ -28,6 +41,7 @@ router = APIRouter(prefix="/api/v1")
 bearer = HTTPBearer(auto_error=False)
 ACTIVE_STATUSES = ("queued", "running")
 CAPABILITY_LIFETIME = timedelta(hours=24)
+SESSION_CAPABILITY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 
 class CreateSession(BaseModel):
@@ -84,6 +98,81 @@ def public_request(turn: TurnRequest) -> dict:
     }
 
 
+def public_initialization(
+    job: SessionInitializationJob | None, runtime_version: str
+) -> dict:
+    if runtime_version == "v1_legacy":
+        return {
+            "status": "not_applicable",
+            "lifecycle_status": "ready",
+            "runtime_version": runtime_version,
+            "job_id": None,
+            "attempts": 0,
+            "failure": None,
+            "opening": None,
+            "provenance": None,
+        }
+    if job is None:
+        return {
+            "status": "uninitialized",
+            "lifecycle_status": "uninitialized",
+            "runtime_version": runtime_version,
+            "job_id": None,
+            "attempts": 0,
+            "failure": None,
+            "opening": None,
+            "provenance": None,
+        }
+    failure = None
+    if job.failure_code is not None:
+        retryable = job.status == "retryable_failure"
+        failure = {
+            "code": job.failure_code,
+            "stage": job.failure_stage,
+            "retryable": retryable,
+            "message": (
+                "Initialiseringen kan forsøges igen."
+                if retryable
+                else "Initialiseringen mislykkedes."
+            ),
+        }
+    return {
+        "status": job.status,
+        "lifecycle_status": "ready" if job.status == "ready" else "uninitialized",
+        "runtime_version": runtime_version,
+        "job_id": str(job.id),
+        "attempts": job.attempts,
+        "failure": failure,
+        "opening": job.result.get("opening") if job.status == "ready" else None,
+        "provenance": job.result.get("provenance") if job.status == "ready" else None,
+    }
+
+
+def public_created_session(
+    session: GameSession,
+    scenario: ScenarioVersion,
+    job: SessionInitializationJob | None,
+    *,
+    token: str | None,
+    replay: bool,
+) -> dict:
+    initialization = public_initialization(job, session.runtime_version)
+    return {
+        "id": str(session.id),
+        "token": token,
+        "turn_number": session.turn_number,
+        "scenario": scenario.slug,
+        "scenario_version": scenario.version,
+        "role_id": session.player_role_id,
+        "runtime_version": session.runtime_version,
+        "lifecycle_status": initialization["lifecycle_status"],
+        "token_expires_at": session.capability_expires_at.isoformat(),
+        "initialization_status": initialization["status"],
+        "initialization_job_id": initialization["job_id"],
+        "idempotent_replay": replay,
+    }
+
+
 @router.get("/scenarios")
 async def list_scenarios():
     async with session_factory() as db:
@@ -101,6 +190,7 @@ async def list_scenarios():
                 "slug": row.slug,
                 "version": row.version,
                 "schema_version": row.schema_version,
+                "runtime_version": row.runtime_version,
                 "title": metadata.get("title"),
                 "summary": metadata.get("summary"),
                 "default_language": metadata.get("default_language") or metadata.get("language"),
@@ -129,6 +219,7 @@ async def get_scenario(slug: str):
             "slug": scenario.slug,
             "version": scenario.version,
             "schema_version": scenario.schema_version,
+            "runtime_version": scenario.runtime_version,
             "metadata": definition["metadata"],
             "historical_context": definition["historical_context"],
             "actors": definition["actors"],
@@ -160,19 +251,109 @@ async def get_scenario(slug: str):
 
 
 @router.post("/sessions", status_code=201)
-async def create_session(payload: CreateSession):
-    token = secrets.token_urlsafe(32)
+async def create_session(
+    payload: CreateSession,
+    idempotency_key: Annotated[UUID | None, Header(alias="Idempotency-Key")] = None,
+    session_capability: Annotated[
+        str | None,
+        Header(
+            alias="X-Session-Capability",
+            description=(
+                "Client-generated 256-bit URL-safe bearer used with Idempotency-Key "
+                "for safe create retries. The API stores only its hash."
+            ),
+        ),
+    ] = None,
+):
+    requested_creation_key_hash = (
+        hashlib.sha256(str(idempotency_key).encode("ascii")).hexdigest()
+        if idempotency_key is not None
+        else None
+    )
+    valid_client_capability = (
+        session_capability is not None
+        and SESSION_CAPABILITY_PATTERN.fullmatch(session_capability) is not None
+    )
     async with session_factory() as db:
         async with db.begin():
+            if requested_creation_key_hash is not None:
+                # Serialize same-key creates, including the response-lost retry path.
+                await db.execute(
+                    select(
+                        func.pg_advisory_xact_lock(
+                            func.hashtextextended(requested_creation_key_hash, 0)
+                        )
+                    )
+                )
+                existing = (
+                    await db.execute(
+                        select(GameSession)
+                        .where(GameSession.creation_key_hash == requested_creation_key_hash)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if existing is not None:
+                    scenario = await db.get(ScenarioVersion, existing.scenario_version_id)
+                    if not valid_client_capability:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=(
+                                "Schema-v2 session replay requires Idempotency-Key and "
+                                "X-Session-Capability"
+                            ),
+                        )
+                    requested_capability_hash = hashlib.sha256(
+                        session_capability.encode("utf-8")
+                    ).hexdigest()
+                    expected_role = None
+                    if scenario is not None and scenario.definition is not None:
+                        expected_role = (
+                            payload.role_id or scenario.definition.get("default_role_id")
+                        )
+                    if (
+                        scenario is None
+                        or scenario.runtime_version != "v2_ai"
+                        or scenario.slug != payload.scenario
+                        or expected_role != existing.player_role_id
+                        or not hmac.compare_digest(
+                            existing.capability_hash, requested_capability_hash
+                        )
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Idempotency-Key was already used for a different session",
+                        )
+                    if existing.capability_expires_at <= datetime.now(timezone.utc):
+                        raise HTTPException(status_code=404, detail="Session not found")
+                    job = await get_session_job(db, existing.id)
+                    if scenario.schema_version == 2 and job is None:
+                        job = await enqueue_initialization(db, existing.id)
+                    return public_created_session(
+                        existing, scenario, job, token=None, replay=True
+                    )
+
             scenario = await get_active_scenario(db, payload.scenario, lock=True)
             if scenario is None:
                 raise HTTPException(status_code=404, detail="Scenario not found")
             player_role_id = None
             if scenario.definition is not None:
-                try:
-                    require_runtime_compatible(scenario)
-                except ScenarioRuntimeIncompatible as exc:
-                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+                if scenario.schema_version == 1:
+                    try:
+                        require_runtime_compatible(scenario)
+                    except ScenarioRuntimeIncompatible as exc:
+                        raise HTTPException(status_code=409, detail=str(exc)) from exc
+                elif scenario.schema_version == 2:
+                    try:
+                        definition = ScenarioDefinitionV2.model_validate(scenario.definition)
+                        validate_v2_definition(definition)
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=409, detail="Active scenario definition is invalid"
+                        ) from exc
+                else:
+                    raise HTTPException(
+                        status_code=409, detail="Active scenario schema version is unsupported"
+                    )
                 playable_roles = {
                     role["id"] for role in scenario.definition["roles"] if role["playable"]
                 }
@@ -181,20 +362,61 @@ async def create_session(payload: CreateSession):
                     raise HTTPException(status_code=422, detail="role_id is not a playable role")
             elif payload.role_id is not None:
                 raise HTTPException(status_code=422, detail="Legacy scenario does not support roles")
+            if scenario.schema_version == 2 and (
+                requested_creation_key_hash is None or not valid_client_capability
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Schema-v2 session creation requires Idempotency-Key and "
+                        "X-Session-Capability"
+                    ),
+                )
+            if scenario.runtime_version == "v2_ai":
+                token = session_capability
+                creation_key_hash = requested_creation_key_hash
+            else:
+                # Preserve v1's server-issued capability and ignore the v2-only headers.
+                token = secrets.token_urlsafe(32)
+                creation_key_hash = None
+            capability_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            if scenario.runtime_version == "v2_ai":
+                # Serialize reuse across different idempotency keys before the unique check.
+                await db.execute(
+                    select(
+                        func.pg_advisory_xact_lock(func.hashtextextended(capability_hash, 1))
+                    )
+                )
+                capability_owner = (
+                    await db.execute(
+                        select(GameSession.id).where(
+                            GameSession.capability_hash == capability_hash
+                        )
+                    )
+                ).scalar_one_or_none()
+                if capability_owner is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="X-Session-Capability is already assigned to another session",
+                    )
             session = GameSession(
                 id=uuid4(), scenario_version_id=scenario.id,
                 player_role_id=player_role_id,
-                capability_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                capability_hash=capability_hash,
+                creation_key_hash=creation_key_hash,
+                runtime_version=scenario.runtime_version,
                 capability_expires_at=datetime.now(timezone.utc) + CAPABILITY_LIFETIME,
-                turn_number=0, state=dict(scenario.initial_state),
+                turn_number=0,
+                state={} if scenario.schema_version == 2 else dict(scenario.initial_state),
             )
             db.add(session)
-            return {
-                "id": str(session.id), "token": token, "turn_number": 0,
-                "scenario": scenario.slug, "scenario_version": scenario.version,
-                "role_id": player_role_id,
-                "token_expires_at": session.capability_expires_at.isoformat(),
-            }
+            await db.flush()
+            job = (
+                await enqueue_initialization(db, session.id)
+                if scenario.schema_version == 2
+                else None
+            )
+            return public_created_session(session, scenario, job, token=token, replay=False)
 
 
 @router.get("/sessions/{session_id}")
@@ -206,13 +428,53 @@ async def resume_session(session_id: UUID, token: Annotated[str, Depends(require
             TurnRequest.session_id == session.id, TurnRequest.status.in_(ACTIVE_STATUSES)
         ))).scalar_one_or_none()
         scenario = await db.get(ScenarioVersion, session.scenario_version_id)
+        initialization = public_initialization(
+            await get_session_job(db, session.id), session.runtime_version
+        )
         return {
             "id": str(session.id), "turn_number": session.turn_number, "state": session.state,
             "pending_request": public_request(pending) if pending else None,
             "scenario": scenario.slug,
             "scenario_version": scenario.version,
+            "runtime_version": session.runtime_version,
+            "lifecycle_status": initialization["lifecycle_status"],
             "player_role_id": session.player_role_id,
+            "initialization_status": initialization["status"],
+            "initialization": initialization,
         }
+
+
+@router.get("/sessions/{session_id}/initialization")
+async def get_initialization_status(
+    session_id: UUID,
+    token: Annotated[str, Depends(require_token)],
+):
+    async with session_factory() as db:
+        session = await owned_session(db, session_id, token)
+        return public_initialization(
+            await get_session_job(db, session.id), session.runtime_version
+        )
+
+
+@router.post("/sessions/{session_id}/initialization/retry", status_code=202)
+async def retry_session_initialization(
+    session_id: UUID,
+    token: Annotated[str, Depends(require_token)],
+):
+    async with session_factory() as db:
+        async with db.begin():
+            session = await owned_session(db, session_id, token, lock=True)
+            scenario = await db.get(ScenarioVersion, session.scenario_version_id)
+            if scenario is None or scenario.schema_version != 2:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Only schema-v2 sessions have an initialization job",
+                )
+            try:
+                job = await request_retry(db, session.id)
+            except InitializationNotRetryable as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            return public_initialization(job, session.runtime_version)
 
 @router.post("/sessions/{session_id}/turns", status_code=202)
 async def submit_turn(
@@ -227,6 +489,20 @@ async def submit_turn(
     async with session_factory() as db:
         async with db.begin():
             session = await owned_session(db, session_id, token, lock=True)
+            scenario = await db.get(ScenarioVersion, session.scenario_version_id)
+            if scenario is None:
+                raise HTTPException(status_code=404, detail="Session scenario not found")
+            if session.runtime_version == "v2_ai":
+                initialization = await get_session_job(db, session.id)
+                if initialization is None or initialization.status != "ready":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Session initialization is not ready",
+                    )
+            try:
+                require_runtime_compatible(scenario)
+            except ScenarioRuntimeIncompatible as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             existing = (await db.execute(select(TurnRequest).where(
                 TurnRequest.session_id == session.id,
                 TurnRequest.client_turn_id == payload.client_turn_id,

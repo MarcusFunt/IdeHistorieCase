@@ -1,5 +1,6 @@
 """PostgreSQL API contract for scenario discovery and role-aware sessions."""
 import os
+import secrets
 import shutil
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -81,6 +82,29 @@ async def test_sessions_resolve_active_version_role_and_keep_old_pin(scenario_cl
     old_data = old.json()
     scenario_client.created_sessions.append(UUID(old_data["id"]))
     assert old_data["scenario_version"] == "1" and old_data["role_id"] is None
+    assert old_data["runtime_version"] == "v1_legacy"
+    assert old_data["lifecycle_status"] == "ready"
+
+    key_only_v1 = await scenario_client.post(
+        "/api/v1/sessions",
+        json={"scenario": "versailles-1919"},
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert key_only_v1.status_code == 201
+    scenario_client.created_sessions.append(UUID(key_only_v1.json()["id"]))
+
+    supplied_capability = "z" * 43
+    paired_headers_v1 = await scenario_client.post(
+        "/api/v1/sessions",
+        json={"scenario": "versailles-1919"},
+        headers={
+            "Idempotency-Key": str(uuid4()),
+            "X-Session-Capability": supplied_capability,
+        },
+    )
+    assert paired_headers_v1.status_code == 201
+    assert paired_headers_v1.json()["token"] != supplied_capability
+    scenario_client.created_sessions.append(UUID(paired_headers_v1.json()["id"]))
 
     async with session_factory() as db, db.begin():
         await activate_scenario_version(db, "versailles-1919", "2.5")
@@ -118,12 +142,17 @@ async def test_sessions_resolve_active_version_role_and_keep_old_pin(scenario_cl
     )
     assert resumed_old.json()["scenario_version"] == "1"
     assert resumed_old.json()["player_role_id"] is None
+    assert resumed_old.json()["runtime_version"] == "v1_legacy"
+    assert resumed_old.json()["lifecycle_status"] == "ready"
+    assert resumed_old.json()["initialization_status"] == "not_applicable"
+    assert resumed_old.json()["initialization"]["status"] == "not_applicable"
+    assert resumed_old.json()["initialization"]["opening"] is None
     assert resumed_new.json()["scenario"] == "versailles-1919"
     assert resumed_new.json()["scenario_version"] == "2.5"
     assert resumed_new.json()["player_role_id"] == "british_adviser"
 
 
-async def test_active_v2_metadata_is_schema_aware_but_session_creation_is_blocked(
+async def test_active_v2_session_queues_initialization_without_becoming_playable(
     scenario_client, tmp_path
 ):
     bundle = tmp_path / "versailles-1919"
@@ -165,6 +194,46 @@ async def test_active_v2_metadata_is_schema_aware_but_session_creation_is_blocke
     assert body["chronology"]["opening_date"] == "1919-04-01"
     assert "phases" not in body and "dilemmas" not in body
 
-    create = await scenario_client.post("/api/v1/sessions", json={"scenario": "versailles-1919"})
-    assert create.status_code == 409
-    assert "runtime" in create.json()["detail"].lower()
+    request_key = uuid4()
+    capability = secrets.token_urlsafe(32)
+    create = await scenario_client.post(
+        "/api/v1/sessions",
+        json={"scenario": "versailles-1919"},
+        headers={
+            "Idempotency-Key": str(request_key),
+            "X-Session-Capability": capability,
+        },
+    )
+    assert create.status_code == 201
+    session = create.json()
+    scenario_client.created_sessions.append(UUID(session["id"]))
+    assert session["scenario_version"] == v2_version
+    assert session["initialization_status"] == "queued"
+    assert session["lifecycle_status"] == "uninitialized"
+    assert session["runtime_version"] == "v2_ai"
+
+    initialization = await scenario_client.get(
+        f"/api/v1/sessions/{session['id']}/initialization",
+        headers={"Authorization": f"Bearer {capability}"},
+    )
+    assert initialization.status_code == 200
+    assert initialization.json()["status"] == "queued"
+    assert initialization.json()["lifecycle_status"] == "uninitialized"
+    assert initialization.json()["runtime_version"] == "v2_ai"
+    assert initialization.json()["opening"] is None
+
+    turn_id = uuid4()
+    blocked_turn = await scenario_client.post(
+        f"/api/v1/sessions/{session['id']}/turns",
+        json={
+            "client_turn_id": str(turn_id),
+            "expected_turn": 0,
+            "text": "Undersøg situationen.",
+            "input_language": "da",
+        },
+        headers={
+            "Authorization": f"Bearer {capability}",
+            "Idempotency-Key": str(turn_id),
+        },
+    )
+    assert blocked_turn.status_code == 409

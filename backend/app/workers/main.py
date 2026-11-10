@@ -11,6 +11,7 @@ from app.core.settings import WORKER_HEALTH_TIMEOUT_SECONDS, get_settings
 from app.db.connection import engine
 from app.db.models import ServiceHeartbeat
 from app.game.turn_worker import run_turn_worker
+from app.workers.initialization import run_initialization_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -57,7 +58,9 @@ async def monitor_inference() -> None:
 
 
 async def run() -> None:
-    await asyncio.gather(monitor_inference(), run_turn_worker())
+    await asyncio.gather(
+        monitor_inference(), run_turn_worker(), run_initialization_worker()
+    )
 
 
 if __name__ == "__main__":

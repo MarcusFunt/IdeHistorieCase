@@ -51,3 +51,11 @@ def test_model_specific_reasoning_is_optional_and_configurable(monkeypatch):
     assert Settings(llm_enable_thinking="").llm_enable_thinking is None
     assert Settings(llm_enable_thinking=False).llm_enable_thinking is False
     assert Settings(llm_enable_thinking=True).llm_enable_thinking is True
+
+
+def test_llm_completion_timeout_is_bounded_for_initialization_inference():
+    assert Settings().llm_completion_timeout_seconds == 120.0
+    with pytest.raises(ValidationError, match="llm_completion_timeout_seconds"):
+        Settings(llm_completion_timeout_seconds=0.5)
+    with pytest.raises(ValidationError, match="llm_completion_timeout_seconds"):
+        Settings(llm_completion_timeout_seconds=601)

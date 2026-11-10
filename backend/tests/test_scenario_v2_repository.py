@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.db.connection import engine, session_factory
@@ -169,7 +169,7 @@ async def test_concurrent_identical_v2_imports_publish_one_release(tmp_path):
 
 async def test_activation_does_not_repin_existing_sessions_to_v2(tmp_path):
     path, version = copy_release(tmp_path)
-    imported = await import_path(path)
+    await import_path(path)
     session_id = uuid4()
     async with session_factory() as db, db.begin():
         legacy = (
@@ -191,8 +191,7 @@ async def test_activation_does_not_repin_existing_sessions_to_v2(tmp_path):
         db.add(game)
         await db.flush()
         pinned_id, pinned_state = game.scenario_version_id, dict(game.state)
-        with pytest.raises(ValueError, match="schema version 2.*not supported"):
-            await activate_scenario_version(db, "versailles-1919", version)
+        await activate_scenario_version(db, "versailles-1919", version)
         after = await db.get(GameSession, session_id)
         active = (
             await db.execute(
@@ -204,8 +203,7 @@ async def test_activation_does_not_repin_existing_sessions_to_v2(tmp_path):
         ).scalar_one()
         assert after.scenario_version_id == pinned_id
         assert after.state == pinned_state
-        assert active.version == "1"
-        assert imported.scenario.is_active is False
+        assert active.version == version
         await db.delete(game)
 
 
@@ -224,8 +222,7 @@ async def test_import_preview_activation_inspection_and_playable_check_commands(
     assert validated.returncode == 0, validated.stderr
     assert json.loads(validated.stdout)["checks"]["schema_valid"]["status"] == "valid"
     assert imported.returncode == repeated.returncode == 0, imported.stderr + repeated.stderr
-    assert activated.returncode == 2
-    assert "schema version 2 is not supported" in activated.stderr.lower()
+    assert activated.returncode == 0, activated.stderr
     assert shown.returncode == 0 and "opening_briefing" in shown.stdout
     assert checked.returncode == 1
     report = json.loads(checked.stdout)
@@ -299,6 +296,7 @@ async def test_sql_guard_rejects_content_metadata_that_disagrees_with_manifest(t
                 slug=loaded.definition.slug,
                 version=version,
                 schema_version=2,
+                runtime_version="v2_ai",
                 definition=loaded.definition.model_dump(mode="json"),
                 initial_state={},
                 content_hash=loaded.content_hash,
@@ -334,6 +332,19 @@ async def test_sql_guard_rejects_content_metadata_that_disagrees_with_manifest(t
         assert await db.get(ScenarioVersion, version_id) is None
 
 
+async def test_sql_guard_pins_runtime_discriminator_to_manifest_schema(tmp_path):
+    path, _version = copy_release(tmp_path)
+    imported = await import_path(path)
+
+    with pytest.raises(DBAPIError, match="ck_scenario_runtime_version"):
+        async with session_factory() as db, db.begin():
+            await db.execute(
+                update(ScenarioVersion)
+                .where(ScenarioVersion.id == imported.scenario.id)
+                .values(runtime_version="v1_legacy")
+            )
+
+
 @pytest.mark.parametrize("manifest_items", ["empty", "missing"])
 async def test_sql_guard_rejects_empty_or_missing_v2_content_manifest(tmp_path, manifest_items):
     path, version = copy_release(tmp_path)
@@ -353,6 +364,7 @@ async def test_sql_guard_rejects_empty_or_missing_v2_content_manifest(tmp_path, 
                     slug=loaded.definition.slug,
                     version=version,
                     schema_version=2,
+                    runtime_version="v2_ai",
                     definition=invalid_definition,
                     initial_state=loaded.initial_state,
                     content_hash=loaded.content_hash,
@@ -382,6 +394,7 @@ async def test_sql_guard_rejects_content_hash_that_disagrees_with_body(tmp_path)
                     slug=loaded.definition.slug,
                     version=version,
                     schema_version=2,
+                    runtime_version="v2_ai",
                     definition=loaded.definition.model_dump(mode="json"),
                     initial_state=loaded.initial_state,
                     content_hash=loaded.content_hash,

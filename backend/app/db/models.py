@@ -42,6 +42,12 @@ class ScenarioVersion(Base):
     __table_args__ = (
         UniqueConstraint("slug", "version"),
         CheckConstraint(
+            "(schema_version IS NULL AND runtime_version = 'v1_legacy') OR "
+            "(schema_version = 1 AND runtime_version = 'v1_legacy') OR "
+            "(schema_version = 2 AND runtime_version = 'v2_ai')",
+            name="ck_scenario_runtime_version",
+        ),
+        CheckConstraint(
             "CASE "
             "WHEN schema_version IS DISTINCT FROM 2 THEN true "
             "WHEN definition IS NULL THEN false "
@@ -58,6 +64,9 @@ class ScenarioVersion(Base):
     version: Mapped[str] = mapped_column(String(32), nullable=False)
     initial_state: Mapped[dict] = mapped_column(JSONB, nullable=False)
     schema_version: Mapped[int | None] = mapped_column(Integer)
+    runtime_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="v1_legacy", server_default=text("'v1_legacy'")
+    )
     definition: Mapped[dict | None] = mapped_column(JSONB)
     content_hash: Mapped[str | None] = mapped_column(String(64))
     bundle_hash: Mapped[str | None] = mapped_column(String(64))
@@ -119,18 +128,98 @@ class ScenarioContentItem(Base):
 
 class GameSession(Base):
     __tablename__ = "game_sessions"
-    __table_args__ = (CheckConstraint("turn_number >= 0"),)
+    __table_args__ = (
+        CheckConstraint("turn_number >= 0"),
+        CheckConstraint("runtime_version IN ('v1_legacy', 'v2_ai')", name="ck_game_session_runtime_version"),
+        UniqueConstraint("capability_hash", name="uq_game_sessions_capability_hash"),
+        UniqueConstraint("creation_key_hash", name="uq_game_sessions_creation_key_hash"),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     scenario_version_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("scenario_versions.id"), nullable=False
     )
     capability_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    creation_key_hash: Mapped[str | None] = mapped_column(String(64))
+    runtime_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="v1_legacy", server_default=text("'v1_legacy'")
+    )
     player_role_id: Mapped[str | None] = mapped_column(String(64))
     capability_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     turn_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     state: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SessionInitializationJob(Base):
+    __tablename__ = "session_initialization_jobs"
+    __table_args__ = (
+        UniqueConstraint("session_id", name="uq_initialization_job_session"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'ready', 'retryable_failure', 'failed')",
+            name="ck_initialization_job_status",
+        ),
+        CheckConstraint("attempts >= 0", name="ck_initialization_job_attempts_nonnegative"),
+        CheckConstraint(
+            "cycle_attempts BETWEEN 0 AND 3", name="ck_initialization_job_cycle_attempts"
+        ),
+        CheckConstraint(
+            "(status = 'running' AND lease_token IS NOT NULL AND leased_until IS NOT NULL) OR "
+            "(status <> 'running' AND lease_token IS NULL AND leased_until IS NULL)",
+            name="ck_initialization_job_lease_state",
+        ),
+        CheckConstraint(
+            "(status = 'ready' AND result IS NOT NULL AND failure_code IS NULL) OR "
+            "(status <> 'ready' AND result IS NULL)",
+            name="ck_initialization_job_result_state",
+        ),
+        CheckConstraint(
+            "(status IN ('retryable_failure', 'failed') AND failure_code IS NOT NULL) OR "
+            "(status NOT IN ('retryable_failure', 'failed') AND failure_code IS NULL)",
+            name="ck_initialization_job_failure_state",
+        ),
+        CheckConstraint(
+            "result IS NULL OR jsonb_typeof(result) = 'object'",
+            name="ck_initialization_job_result_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(attempt_metadata) = 'array'",
+            name="ck_initialization_job_attempt_metadata_array",
+        ),
+        Index(
+            "ix_initialization_jobs_claim",
+            "status",
+            "next_attempt_at",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    session_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("game_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cycle_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    client_retry_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    repair_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    attempt_metadata: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    lease_token: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    leased_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    failure_stage: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class TurnRequest(Base):

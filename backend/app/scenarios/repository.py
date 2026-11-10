@@ -7,6 +7,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ScenarioContentItem, ScenarioVersion
+from app.scenarios.content_integrity import (
+    ScenarioContentIntegrityError,
+    verify_v2_content_rows,
+)
 from app.scenarios.loader import LoadedScenario
 from app.scenarios.runtime_compatibility import require_runtime_compatible
 from app.scenarios.schema_v2 import ScenarioDefinitionV2
@@ -155,6 +159,7 @@ async def import_scenario(db: AsyncSession, loaded: LoadedScenario) -> ImportRes
         version=definition.version,
         initial_state=loaded.initial_state,
         schema_version=definition.schema_version,
+        runtime_version="v2_ai" if definition.schema_version == 2 else "v1_legacy",
         definition=definition.model_dump(mode="json"),
         content_hash=loaded.content_hash,
         bundle_hash=loaded.bundle_hash,
@@ -199,7 +204,21 @@ async def activate_scenario_version(
         raise ScenarioVersionNotFound(
             f"{slug}@{version} is a legacy stub and cannot be activated"
         )
-    if selected.definition is not None:
+    if selected.schema_version == 2:
+        rows = (
+            await db.execute(
+                select(ScenarioContentItem)
+                .where(ScenarioContentItem.scenario_version_id == selected.id)
+                .order_by(ScenarioContentItem.item_key)
+            )
+        ).scalars().all()
+        try:
+            verify_v2_content_rows(selected, rows)
+        except ScenarioContentIntegrityError as exc:
+            raise ScenarioVersionNotFound(
+                f"{slug}@{version} has incomplete or inconsistent SQL-backed content"
+            ) from exc
+    elif selected.definition is not None:
         require_runtime_compatible(selected)
 
     for row in versions:

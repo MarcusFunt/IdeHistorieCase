@@ -47,8 +47,10 @@ queued -> running -> ready
 - `ready` is written only in the transaction that stores the validated opening, its authoritative initialization event/result, and the initialized state projection. A queued, running, or failed session is not playable.
 - A worker lease/fencing token owns each attempt. Duplicate requests, worker restarts, and stale results cannot create a second opening. Inference runs outside database transactions and locks.
 - The session remains `uninitialized` while the job is queued, running, retryable, or failed; only a successful atomic commit changes its lifecycle to `ready`. Transient service, context/evidence, timeout, and database failures may be retried within the bounded whole-job attempt budget below. Invalid or unauthorized proposals become terminal after the allowed repair. Failure updates job metadata only; it does not alter story state or turn number.
+- V2 creation accepts `Idempotency-Key` and a client-generated 256-bit `X-Session-Capability` together. Store only hashes of both. A matching retry returns the same pinned session and initialization job, omits the capability from the replay response, and rejects reuse with different session inputs.
 - Preserve the existing non-null `ScenarioVersion.initial_state` column for compatibility: v2 stores `{}` there as a neutral placeholder, not a playable state. A v2 session projection remains uninitialized until the opening event/result and initial projection commit successfully.
 - The client reads lifecycle and failure information from the session/initialization status resource. Retrying reuses the same logical initialization job and cannot create another opening.
+- **Selection is distinct from playability for v2.** Activation verifies the immutable SQL manifest and complete content rows, then makes the release selectable for session creation. The runtime playable check remains false until the required runtime is implemented. New sessions stay uninitialized and turn submission is rejected until the opening commits as `ready`.
 
 ### 5. Model proposal boundary and validation
 
@@ -103,6 +105,7 @@ Each job gets at most three whole-job attempts in its automatic cycle, counted w
 ### 10. Session capability and deferred identity
 
 - A session capability is an opaque bearer token returned once at creation. Store only its cryptographic hash; never log or include it in model context.
+- For idempotent v2 creation, the client generates and retains the bearer before sending it as `X-Session-Capability`; `Idempotency-Key` identifies the create request. Both headers are required together. A replay returns session metadata without repeating the bearer value.
 - The capability expires exactly 24 hours after issuance, using UTC timestamps. After expiry, the session remains stored but cannot be resumed with that token; the API returns 404 for an unknown session or wrong/expired bearer, while a missing/non-Bearer credential returns 401. The UI must not promise longer or cross-device recovery.
 - There is no account or guest profile in this release. Guest profiles, multi-session progress, capability renewal/recovery, and account-based identity are deferred until classroom use demonstrates the need and a privacy/retention design is approved.
 
