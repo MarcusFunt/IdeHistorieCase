@@ -1,0 +1,34 @@
+schema_version: 1
+scenario_slug: industrial-workplace
+scenario_version: "1.0"
+rights_policy: >-
+  Only reviewed passages from the 1912 official report are eligible in gameplay.
+  Later or rights-uncertain archival items remain pending and are not ingested.
+sources:
+  - id: R01
+    title: "Preliminary report of the Factory Investigating Commission, 1912"
+    document_date: "1912"
+    institution: "New York State Factory Investigating Commission; digitized copy in the University of Michigan / Internet Archive collection"
+    url: "https://www.loc.gov/item/12033589/"
+    full_text_url: "https://archive.org/details/0962976.1912.001.umich.edu"
+    status: text_checked
+    reviewer: "Codex research review, 2026-11-11"
+    rights_status: approved_for_prototype
+    use: period_statement_paraphrase_only
+    limitations: >-
+      The report is an institutional investigation, not an omniscient description
+      of every factory. The source record reports the year, not a precise release
+      date; gameplay availability is conservatively set to 1913-01-01. Avoid an
+      exact Triangle death count because the report and later records differ.
+  - id: R02
+    title: "Factory Investigating Commission photograph and description: Union Mills water closets"
+    document_date: "1912"
+    institution: "New York State Archives"
+    url: "https://www.nysarchivestrust.org/application/files/6016/0580/5862/Men_s_underwear_factory_water_closets.pdf"
+    status: rights_review_pending
+    reviewer: "Codex research review, 2026-11-11"
+    rights_status: pending
+    use: not_ingested
+    limitations: >-
+      The archive states the image is for education and research and that rights
+      may be reserved. It is excluded from the manifest and gameplay corpus.

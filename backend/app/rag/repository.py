@@ -1,5 +1,6 @@
 """PostgreSQL persistence for immutable passage corpora and review history."""
 from dataclasses import dataclass
+from datetime import date
 from math import isfinite
 from uuid import uuid4
 
@@ -55,9 +56,22 @@ def _validate_embeddings(vectors: list[list[float]], expected_count: int) -> Non
 def _validate_scenario_policy(loaded: LoadedCorpus, scenario: ScenarioVersion) -> None:
     if scenario.definition is None:
         raise RagScenarioNotFound("RAG ingestion requires an authored scenario version")
-    phase_ids = {phase["id"] for phase in scenario.definition.get("phases", [])}
-    if set(loaded.corpus.phase_world_dates) != phase_ids:
-        raise ValueError("phase_world_dates must cover the exact phases in the pinned scenario version")
+    if scenario.schema_version == 2:
+        opening_date = scenario.definition.get("chronology", {}).get("opening_date")
+        try:
+            expected_dates = {"opening": date.fromisoformat(opening_date)}
+        except (TypeError, ValueError):
+            expected_dates = {}
+        if loaded.corpus.phase_world_dates != expected_dates:
+            raise ValueError(
+                "phase_world_dates must contain exactly the pinned schema v2 opening date"
+            )
+    else:
+        phase_ids = {phase["id"] for phase in scenario.definition.get("phases", [])}
+        if set(loaded.corpus.phase_world_dates) != phase_ids:
+            raise ValueError(
+                "phase_world_dates must cover the exact phases in the pinned scenario version"
+            )
 
     actor_ids = {actor["id"] for actor in scenario.definition.get("actors", [])}
     source_ids = set(scenario.definition.get("source_refs", []))
@@ -80,8 +94,6 @@ def _validate_scenario_policy(loaded: LoadedCorpus, scenario: ScenarioVersion) -
             if availability != "postgame" or not passage.postgame_only:
                 raise ValueError(f"passage {passage.key} conflicts with source availability policy")
         else:
-            from datetime import date
-
             try:
                 policy_date = date.fromisoformat(availability)
             except (TypeError, ValueError) as exc:

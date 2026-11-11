@@ -1,0 +1,78 @@
+# Reviewed no-source v2 release for the dual-case runtime evaluation.
+schema_version: 2
+slug: versailles-1919
+version: "3.1-ai"
+metadata:
+  title: "Parisfredskonferencen: åbent historisk rollespil"
+  language: da
+  summary: "Undersøg sikkerhed, retfærdighed og repræsentation gennem åbne handlinger."
+  subject: "Idéhistorie"
+  intended_audience: "HTX"
+  historical_period: {start: "1919-01-01", end: "1919-12-31"}
+historical_context:
+  introduction: >-
+    Du spiller en fiktiv britisk rådgiver ved fredsforhandlingerne i Paris i 1919.
+    Undersøg konkurrerende hensyn til sikkerhed, retfærdighed, genopbygning og
+    repræsentation. Din rådgiver er opdigtet, og scenariets samtaler og mulige
+    konsekvenser er ikke historiske hændelser.
+  counterfactual_disclaimer: >-
+    Spillets forslag og reaktioner er kontrafaktiske modeller, ikke historiske
+    hændelser eller målte forudsigelser. Opdigtet dialog er ikke et historisk
+    citat. Denne udgave indeholder ingen godkendte historiske kildepassager.
+actors:
+  - id: britain
+    name: "Den britiske delegation"
+    description: "Delegation med flere mulige syn på sikkerhed og økonomi."
+    motivations: [sikkerhed, genopbygning]
+    knowledge_constraints: ["Behandl ikke delegationen som én fast holdning."]
+  - id: france
+    name: "Den franske delegation"
+    description: "Delegation med sikkerheds- og genopbygningshensyn."
+    motivations: [sikkerhed, genopbygning]
+  - id: china
+    name: "Den kinesiske delegation"
+    description: "Berørt delegation med egne forslag og indsigelser."
+    motivations: [suverænitet, repræsentation]
+roles:
+  - id: british_adviser
+    actor_id: britain
+    title: "Fiktiv britisk forhandlingsrådgiver"
+    playable: true
+    introduction: "Du er opdigtet. Begrund et forslag, og overvej hvem der mangler indflydelse."
+    knowledge_constraints: ["Du må ikke behandle senere udfald som kendt i 1919."]
+default_role_id: british_adviser
+learning_objectives:
+  - id: weigh_security_and_justice
+    description: "Skeln mellem sikkerhed, straf og genopretning."
+    concepts: [sikkerhed, retfærdighed]
+    observable_behaviors: ["Begrund en prioritering.", "Forklar en omkostning eller modpartsbekymring."]
+  - id: examine_representation
+    description: "Undersøg hvem der deltager i beslutninger, og hvem der berøres uden tilsvarende indflydelse."
+    concepts: [repræsentation, selvbestemmelse]
+    observable_behaviors: ["Identificer en berørt part.", "Beskriv en begrænsning ved forhandlingsproceduren."]
+  - id: distinguish_simulation
+    description: "Skeln mellem forfatterkontekst og spillets kontrafaktiske udvikling."
+    concepts: [kildekritik, kontrafaktisk historie]
+    observable_behaviors: ["Mærk et alternativt udfald som kontrafaktisk."]
+chronology:
+  opening_date: "1919-04-01"
+  max_days_per_advance: 7
+interaction_guidance:
+  style: negotiation
+  freedom: open_ended
+  emphasize: [argumentation, competing_interests, historical_perspectives]
+content_items:
+  - key: opening_briefing
+    kind: author_briefing
+    file: notes/opening_briefing_3_1.md
+    mode: gameplay
+    visibility: [british_adviser]
+    review_status: author_reviewed
+    world_valid_from: "1919-04-01"
+completion_policy:
+  mode: goal_or_player_end
+  min_meaningful_decisions: 2
+  max_turns: 24
+  objective_ids: [weigh_security_and_justice, examine_representation]
+optional_beats: []
+source_refs: []

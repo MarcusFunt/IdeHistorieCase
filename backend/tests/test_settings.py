@@ -55,21 +55,22 @@ def test_model_specific_reasoning_is_optional_and_configurable(monkeypatch):
 
 
 def test_llm_completion_timeout_is_bounded_for_initialization_inference():
-    assert Settings().llm_completion_timeout_seconds == 120.0
+    assert Settings().llm_completion_timeout_seconds == 240.0
     with pytest.raises(ValidationError, match="llm_completion_timeout_seconds"):
         Settings(llm_completion_timeout_seconds=0.5)
     with pytest.raises(ValidationError, match="llm_completion_timeout_seconds"):
         Settings(llm_completion_timeout_seconds=601)
 
 
-def test_turn_timing_defaults_allow_context_and_one_repair_call():
+def test_turn_timing_defaults_allow_bounded_calls_and_corrections():
     settings = Settings()
     assert settings.turn_lease_seconds == 60
     assert settings.turn_lease_renew_interval_seconds == 15
     assert settings.turn_context_timeout_seconds == 30
-    assert settings.turn_inference_timeout_seconds == 90
+    assert settings.turn_inference_timeout_seconds == 220
+    assert settings.turn_total_timeout_seconds == 1380
     assert settings.turn_total_timeout_seconds >= (
-        settings.turn_context_timeout_seconds + 2 * settings.turn_inference_timeout_seconds
+        settings.turn_context_timeout_seconds + 6 * settings.turn_inference_timeout_seconds + 5
     )
 
 
@@ -78,10 +79,10 @@ def test_turn_lease_renewal_must_run_before_half_lease():
         Settings(turn_lease_seconds=10, turn_lease_renew_interval_seconds=5)
 
 
-def test_turn_total_timeout_must_include_context_and_repair_budget():
-    with pytest.raises(ValidationError, match="one bounded repair call"):
+def test_turn_total_timeout_must_include_tool_calls_and_repair_budget():
+    with pytest.raises(ValidationError, match="six bounded model calls"):
         Settings(
             turn_context_timeout_seconds=30,
             turn_inference_timeout_seconds=90,
-            turn_total_timeout_seconds=209,
+            turn_total_timeout_seconds=574,
         )

@@ -137,7 +137,8 @@ async def test_valid_opening_is_pinned_and_initial_state_is_derived():
         context.payload["evidence"]["passages"][0]["passage_id"]
     )
     assert len(generator.calls) == 1
-    assert generator.calls[0]["enable_thinking"] is False
+    assert generator.calls[0]["enable_thinking"] is None
+    assert generator.calls[0]["max_tokens"] == 5632
     assert "opening_authorizations" in generator.calls[0]["user_prompt"]
     assert role.actor_id in generator.calls[0]["user_prompt"]
 
@@ -145,6 +146,7 @@ async def test_valid_opening_is_pinned_and_initial_state_is_derived():
 @pytest.mark.parametrize(
     ("change", "expected_code"),
     [
+        (lambda data: data.update(role_id="unexpected_role"), "role_id_mismatch"),
         (lambda data: data.update(present_actor_ids=["unknown-actor"]), "unknown_actor_id"),
         (lambda data: data.update(world_date="1919-03-01"), "opening_date_mismatch"),
         (
@@ -184,8 +186,12 @@ async def test_invalid_opening_is_repaired_once_with_bounded_validation_errors(
     assert result.opening["role_id"] == role.id
     assert repairs == 1
     assert len(generator.calls) == 2
+    assert generator.calls[0]["enable_thinking"] is None
+    assert generator.calls[1]["enable_thinking"] is False
     repair_prompt = generator.calls[1]["user_prompt"]
     assert expected_code in repair_prompt
+    if expected_code == "role_id_mismatch":
+        assert f"role_id skal være præcis {role.id}" in repair_prompt
     assert len(repair_prompt) < 20_000
 
 

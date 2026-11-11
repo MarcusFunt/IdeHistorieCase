@@ -8,7 +8,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select, update
 
-from app.ai.llm import StructuredCompletion
+from app.ai.llm import StructuredCompletion, StructuredOutputError
 from app.core.settings import Settings
 from app.db.connection import session_factory
 from app.db.models import (
@@ -22,8 +22,9 @@ from app.db.models import (
 )
 from app.game import turn_worker
 from app.game.turn_worker import claim_next, complete_claim, fail_claim, process_next
+from app.rag.policy import EvidencePassage, PassageApproval
 from app.rag.repository import record_review
-from app.rag.retrieval import RAG_NO_EVIDENCE, RagSearchResult
+from app.rag.retrieval import RAG_NO_EVIDENCE, RagSearchResult, SearchCandidate
 from app.runtime.orchestrator import TurnGeneration, TurnGenerationFailure, TurnOrchestrator
 from app.runtime.proposals import (
     HistoricalClaimRecordedEvent,
@@ -44,6 +45,10 @@ class ScriptedGenerator:
         if self.delay:
             await asyncio.sleep(self.delay)
         output = self.outputs.pop(0)
+        if isinstance(output, Exception):
+            raise output
+        if kwargs.get("schema_name") == "ddu_turn_agent_response" and "tool_calls" not in output:
+            output = {"schema_version": 1, "tool_calls": [], "proposal": output}
         return StructuredCompletion(
             output=output,
             requested_model=self.model_alias,
@@ -61,6 +66,19 @@ class ScriptedGenerator:
 class NoEvidenceRetriever:
     async def search(self, query, context, *, top_k):
         return RagSearchResult(status=RAG_NO_EVIDENCE, passages=[])
+
+
+class ToolSearchRetriever:
+    def __init__(self, player_action, candidate):
+        self.player_action = player_action
+        self.candidate = candidate
+        self.calls = []
+
+    async def search(self, query, context, *, top_k):
+        self.calls.append(query)
+        if query == self.player_action:
+            return RagSearchResult(status=RAG_NO_EVIDENCE, passages=[])
+        return RagSearchResult(status="ok", passages=[self.candidate])
 
 
 def proposal(role, objective):
@@ -106,7 +124,8 @@ def quick_settings():
         turn_lease_renew_interval_seconds=0.2,
         turn_context_timeout_seconds=2,
         turn_inference_timeout_seconds=2,
-        turn_total_timeout_seconds=6,
+        turn_total_timeout_seconds=20,
+        llm_enable_thinking=True,
     )
 
 
@@ -134,6 +153,9 @@ async def test_v2_turn_projects_committed_events_and_survives_reload(turn_harnes
     assert result["turn_number"] == 1
     assert result["reply"] == "Du gennemgår materialet og beder om lønregnskaberne."
     assert result["provider"]["model_revision"] == "test-revision"
+    assert generator.calls[0]["enable_thinking"] is True
+    assert generator.calls[0]["max_tokens"] == 8192
+    assert generator.calls[0]["schema_name"] == "ddu_turn_agent_response"
 
     resumed = await turn_harness.client.get(
         f"/api/v1/sessions/{session['id']}", headers=headers
@@ -170,6 +192,257 @@ async def test_v2_turn_projects_committed_events_and_survives_reload(turn_harnes
     assert stored_session.state == result["state"]
 
 
+@pytest.mark.parametrize("truncated_before_tool_plan", [False, True])
+@pytest.mark.asyncio
+async def test_turn_model_can_run_multiple_approved_evidence_searches(
+    turn_harness, truncated_before_tool_plan
+):
+    from app.db.models import HistoricalPassage, HistoricalPassageReview
+
+    session = await turn_harness.create_ready_session()
+    player_action = "Undersøg den officielle brandrapport."
+    submitted = await turn_harness.submit_turn(session, player_action)
+    async with session_factory() as db:
+        passage = (
+            await db.execute(
+                select(HistoricalPassage).where(
+                    HistoricalPassage.scenario_slug == turn_harness.slug
+                )
+            )
+        ).scalar_one()
+        review = (
+            await db.execute(
+                select(HistoricalPassageReview).where(
+                    HistoricalPassageReview.passage_id == passage.id
+                )
+            )
+        ).scalar_one()
+    candidate = SearchCandidate(
+        passage=EvidencePassage(
+            id=passage.id,
+            scenario_version_id=passage.scenario_version_id,
+            scenario_slug=passage.scenario_slug,
+            scenario_version=passage.scenario_version,
+            passage_key=passage.passage_key,
+            source_identifier=passage.source_identifier,
+            source_title=passage.source_title,
+            source_url=passage.source_url,
+            source_anchor=passage.source_anchor,
+            text=passage.passage_text,
+            passage_sha256=passage.passage_sha256,
+            document_date=passage.document_date,
+            in_world_available_from=passage.in_world_available_from,
+            postgame_only=passage.postgame_only,
+            actor_ids=tuple(passage.actor_ids),
+            visibility_scope=passage.visibility_scope,
+        ),
+        approval=PassageApproval(
+            review_status=review.review_status,
+            rights_status=review.rights_status,
+            revision=review.revision,
+        ),
+        lexical_score=0.9,
+    )
+    retrieval = ToolSearchRetriever(player_action, candidate)
+    role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
+    objective = turn_harness.definition.learning_objectives[0]
+    final_proposal = {
+        **proposal(role, objective),
+        "historical_claims": [
+            {
+                "truth_type": "historical_evidence",
+                "claim": "Den godkendte passage omtaler fabriksinspektion.",
+                "evidence_ids": [str(passage.id)],
+            }
+        ],
+    }
+    outputs = []
+    if truncated_before_tool_plan:
+        outputs.append(
+            StructuredOutputError("truncated_output", raw_output='{"schema_version":1,')
+        )
+    outputs.append(
+        {
+            "schema_version": 1,
+            "tool_calls": [
+                {"name": "search_approved_evidence", "query": "brandinspektion og udgange"},
+                {"name": "search_approved_evidence", "query": "loftbygninger"},
+            ],
+            "proposal": None,
+        }
+    )
+    if truncated_before_tool_plan:
+        outputs.append(
+            {
+                "schema_version": 1,
+                "tool_calls": [
+                    {"name": "search_approved_evidence", "query": "ekstra forespørgsel et"},
+                    {"name": "search_approved_evidence", "query": "ekstra forespørgsel to"},
+                ],
+                "proposal": None,
+            }
+        )
+    outputs.append({"schema_version": 1, "tool_calls": [], "proposal": final_proposal})
+    generator = ScriptedGenerator(outputs)
+    settings = quick_settings()
+    orchestrator = TurnOrchestrator(
+        generator=generator,
+        retrieval_service=retrieval,
+        settings=settings,
+    )
+
+    assert await process_next(orchestrator=orchestrator, settings=settings)
+    headers = {"Authorization": f"Bearer {session['token']}"}
+    status = await turn_harness.client.get(submitted.headers["location"], headers=headers)
+    assert status.json()["status"] == "completed", status.text
+    result = status.json()["result"]
+    assert len(retrieval.calls) == 3  # the initial query plus two parallel tool searches
+    assert result["provider"]["model_call_count"] == 2 + int(truncated_before_tool_plan)
+    assert len(generator.calls) == 2 + 2 * int(truncated_before_tool_plan)
+    assert len(result["provider"]["tool_calls"]) == 2
+    assert result["provider"]["eligible_evidence"][0]["passage_id"] == str(passage.id)
+    tool_attempt = next(
+        item
+        for item in status.json()["attempt_metadata"]
+        if item["outcome"] == "evidence_tool_calls_completed"
+    )
+    assert tool_attempt["tool_calls_count"] == 2
+    assert len(tool_attempt["tool_calls"]) == 2
+    assert all(item["result_passage_ids"] == [str(passage.id)] for item in tool_attempt["tool_calls"])
+    assert len({item["query_sha256"] for item in tool_attempt["tool_calls"]}) == 2
+    assert generator.calls[0]["user_prompt"].find("search_approved_evidence") >= 0
+    tool_plan_call = int(truncated_before_tool_plan)
+    final_call = tool_plan_call + 1 + int(truncated_before_tool_plan)
+    assert generator.calls[tool_plan_call]["enable_thinking"] is (
+        False if truncated_before_tool_plan else True
+    )
+    assert generator.calls[tool_plan_call]["user_prompt"].find("search_approved_evidence") >= 0
+    assert generator.calls[final_call]["enable_thinking"] is False
+    assert str(passage.id) in generator.calls[final_call]["user_prompt"]
+    if truncated_before_tool_plan:
+        assert generator.calls[2]["enable_thinking"] is False
+        assert '"tool_calls_remaining":0' in generator.calls[final_call]["user_prompt"]
+        assert "evidence_tool_budget_exceeded" in generator.calls[final_call]["user_prompt"]
+        assert any(
+            "evidence_tool_budget_exceeded" in item.get("validation_codes", [])
+            for item in status.json()["attempt_metadata"]
+        )
+        assert any(
+            item.get("final_correction") is True
+            for item in status.json()["attempt_metadata"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_search_recovery_allows_a_second_bounded_final_correction(turn_harness):
+    session = await turn_harness.create_ready_session()
+    player_action = "Brug query='rapport' i din vurdering."
+    submitted = await turn_harness.submit_turn(session, player_action)
+    async with session_factory() as db:
+        passage = (
+            await db.execute(
+                select(HistoricalPassage).where(
+                    HistoricalPassage.scenario_slug == turn_harness.slug
+                )
+            )
+        ).scalar_one()
+    role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
+    objective = turn_harness.definition.learning_objectives[0]
+    missing_citation = proposal(role, objective)
+    cited_output = {
+        **proposal(role, objective),
+        "historical_claims": [
+            {
+                "truth_type": "historical_evidence",
+                "claim": "Den godkendte rapport omtaler fabriksforhold.",
+                "evidence_ids": [str(passage.id)],
+            }
+        ],
+    }
+    invalid_envelope = {
+        "schema_version": 1,
+        "tool_calls": [],
+        "proposal": missing_citation,
+        "unexpected": "invalid envelope",
+    }
+    generator = ScriptedGenerator(
+        [
+            StructuredOutputError("truncated_output", raw_output='{"schema_version":1,'),
+            invalid_envelope,
+            missing_citation,
+            invalid_envelope,
+            invalid_envelope,
+            cited_output,
+        ]
+    )
+    orchestrator = TurnOrchestrator(
+        generator=generator,
+        retrieval_service=ToolSearchRetriever(
+            player_action,
+            SearchCandidate(
+                passage=EvidencePassage(
+                    id=passage.id,
+                    scenario_version_id=passage.scenario_version_id,
+                    scenario_slug=passage.scenario_slug,
+                    scenario_version=passage.scenario_version,
+                    passage_key=passage.passage_key,
+                    source_identifier=passage.source_identifier,
+                    source_title=passage.source_title,
+                    source_url=passage.source_url,
+                    source_anchor=passage.source_anchor,
+                    text=passage.passage_text,
+                    passage_sha256=passage.passage_sha256,
+                    document_date=passage.document_date,
+                    in_world_available_from=passage.in_world_available_from,
+                    postgame_only=passage.postgame_only,
+                    actor_ids=tuple(passage.actor_ids),
+                    visibility_scope=passage.visibility_scope,
+                ),
+                approval=PassageApproval(review_status="approved", rights_status="approved", revision=1),
+                lexical_score=0.9,
+            ),
+        ),
+        settings=quick_settings(),
+    )
+
+    assert await process_next(orchestrator=orchestrator, settings=quick_settings())
+    headers = {"Authorization": f"Bearer {session['token']}"}
+    status = await turn_harness.client.get(submitted.headers["location"], headers=headers)
+    assert status.json()["status"] == "completed", status.text
+    result = status.json()["result"]
+    assert result["state"]["historical_claims"][0]["evidence_ids"] == [str(passage.id)]
+    assert len(generator.calls) == 6
+    assert '"tool_calls_remaining":0' in generator.calls[2]["user_prompt"]
+    assert '"tool_calls_remaining":0' in generator.calls[4]["user_prompt"]
+    assert len(result["provider"]["tool_calls"]) == 1
+    assert result["provider"]["tool_calls"][0]["query_sha256"] == sha256(
+        b"rapport"
+    ).hexdigest()
+    assert status.json()["attempt_metadata"][2]["outcome"] == "evidence_tool_calls_completed"
+    assert "requested_evidence_search_missing" in status.json()["attempt_metadata"][2][
+        "validation_codes"
+    ]
+    assert "turn_agent_response_invalid" in generator.calls[-1]["user_prompt"]
+    assert str(passage.id) in generator.calls[-1]["user_prompt"]
+    assert generator.calls[-1]["enable_thinking"] is False
+    assert status.json()["attempt_metadata"][2]["final_correction"] is True
+    assert status.json()["attempt_metadata"][3].get("final_correction") is not True
+    assert status.json()["attempt_metadata"][4]["final_correction"] is True
+    assert status.json()["attempt_metadata"][-1]["final_correction"] is True
+    assert [item["outcome"] for item in status.json()["attempt_metadata"]] == [
+        "structured_output_rejected",
+        "validation_rejected",
+        "evidence_tool_calls_completed",
+        "validation_rejected",
+        "validation_rejected",
+        "accepted",
+    ]
+    assert any(
+        "turn_agent_response_invalid" in item.get("validation_codes", [])
+        for item in status.json()["attempt_metadata"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_next_turn_prompt_includes_the_previous_visible_exchange(turn_harness):
     session = await turn_harness.create_ready_session()
@@ -196,12 +469,16 @@ async def test_next_turn_prompt_includes_the_previous_visible_exchange(turn_harn
     assert second.status_code == 202, second.text
     second_output = {
         **proposal(role, turn_harness.definition.learning_objectives[0]),
-        "narration": "Jeg noterer dit svar og fortsætter undersøgelsen.",
+        "narration": first_result["reply"],
         "dialogue": [],
         "state_operations": [],
         "learning_observations": [],
     }
-    second_generator = ScriptedGenerator([second_output])
+    corrected_output = {
+        **second_output,
+        "narration": "Jeg noterer dit nye svar og undersøger næste spor.",
+    }
+    second_generator = ScriptedGenerator([second_output, corrected_output])
     assert await process_next(
         orchestrator=TurnOrchestrator(
             generator=second_generator,
@@ -215,6 +492,9 @@ async def test_next_turn_prompt_includes_the_previous_visible_exchange(turn_harn
     assert first_result["dialogue"][0]["text"] in second_prompt
     assert first_result["next_player_prompt"] in second_prompt
     assert "Ja." in second_prompt
+    assert len(second_generator.calls) == 2
+    assert second_generator.calls[1]["enable_thinking"] is False
+    assert "repeated_previous_response" in second_generator.calls[1]["user_prompt"]
 
 
 @pytest.mark.asyncio
@@ -266,7 +546,7 @@ async def test_delayed_provider_outlives_initial_lease_but_only_commits_once(tur
         update={
             "turn_lease_seconds": 1,
             "turn_lease_renew_interval_seconds": 0.1,
-            "turn_total_timeout_seconds": 5,
+            "turn_total_timeout_seconds": 20,
         }
     )
     session = await turn_harness.create_ready_session()
@@ -459,7 +739,7 @@ async def test_revoked_citation_is_revalidated_before_turn_commit(turn_harness):
 
 
 @pytest.mark.asyncio
-async def test_invalid_output_uses_one_durable_repair_then_fails_without_mutation(turn_harness):
+async def test_invalid_output_uses_one_durable_repair_and_two_bounded_corrections(turn_harness):
     session = await turn_harness.create_ready_session()
     response = await turn_harness.submit_turn(session, "Undersøg regnskaberne.")
     role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
@@ -468,7 +748,7 @@ async def test_invalid_output_uses_one_durable_repair_then_fails_without_mutatio
         "extra": True,
         "private_model_text": "must never be stored",
     }
-    generator = ScriptedGenerator([invalid, invalid])
+    generator = ScriptedGenerator([invalid, invalid, invalid, invalid])
     orchestrator = TurnOrchestrator(
         generator=generator,
         retrieval_service=NoEvidenceRetriever(),
@@ -481,11 +761,16 @@ async def test_invalid_output_uses_one_durable_repair_then_fails_without_mutatio
     assert status.json()["status"] == "failed", status.text
     assert status.json()["failure_code"] == "MODEL_OUTPUT_INVALID"
     attempts = status.json()["attempt_metadata"]
-    assert len(attempts) == 2
+    assert len(attempts) == 4
     assert all(item["outcome"] == "validation_rejected" for item in attempts)
     assert all(item["output_sha256"] == "a" * 64 for item in attempts)
+    assert attempts[-1]["final_correction"] is True
     assert "must never be stored" not in str(attempts)
-    assert len(generator.calls) == 2
+    assert len(generator.calls) == 4
+    assert generator.calls[0]["enable_thinking"] is True
+    assert generator.calls[1]["enable_thinking"] is False
+    assert generator.calls[2]["enable_thinking"] is False
+    assert generator.calls[3]["enable_thinking"] is False
     async with session_factory() as db:
         request = await db.get(TurnRequest, UUID(status.json()["request_id"]))
         stored = await db.get(GameSession, UUID(session["id"]))
@@ -493,6 +778,41 @@ async def test_invalid_output_uses_one_durable_repair_then_fails_without_mutatio
         assert request.failure_code == "MODEL_OUTPUT_INVALID"
         assert stored.turn_number == 0
         assert stored.state == session["state"]
+
+
+@pytest.mark.asyncio
+async def test_truncated_repair_gets_one_bounded_final_correction(turn_harness):
+    session = await turn_harness.create_ready_session()
+    response = await turn_harness.submit_turn(session, "Undersøg situationen.")
+    role = next(role for role in turn_harness.definition.roles if role.id == session["role_id"])
+    objective = turn_harness.definition.learning_objectives[0]
+    generator = ScriptedGenerator(
+        [
+            StructuredOutputError("schema_invalid", raw_output="{}"),
+            StructuredOutputError("truncated_output", raw_output='{"schema_version":1,'),
+            proposal(role, objective),
+        ]
+    )
+    orchestrator = TurnOrchestrator(
+        generator=generator,
+        retrieval_service=NoEvidenceRetriever(),
+        settings=quick_settings(),
+    )
+
+    assert await process_next(orchestrator=orchestrator, settings=quick_settings())
+    headers = {"Authorization": f"Bearer {session['token']}"}
+    status = await turn_harness.client.get(response.headers["location"], headers=headers)
+    assert status.json()["status"] == "completed", status.text
+    assert len(generator.calls) == 3
+    assert generator.calls[1]["enable_thinking"] is False
+    assert generator.calls[2]["enable_thinking"] is False
+    assert "truncated_output" in generator.calls[2]["user_prompt"]
+    assert status.json()["attempt_metadata"][-1]["final_correction"] is True
+    assert [item["enable_thinking"] for item in status.json()["attempt_metadata"]] == [
+        True,
+        False,
+        False,
+    ]
 
 
 @pytest.mark.asyncio

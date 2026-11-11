@@ -1,0 +1,616 @@
+{
+  "record_type": "goal_10_dual_case_evaluation",
+  "date": "2026-11-11",
+  "purpose": "Compare a reviewed second scenario on the shared schema-v2 runtime using five real-model actions per case, including an unexpected creative request.",
+  "environment": {
+    "database": "cases_goal10_final_smoke_20261111",
+    "model_provider": "Local-AI-API-LITE",
+    "requested_model": "ddu-narrator",
+    "served_model": "ddu-narrator",
+    "model_revision": "vllm-0.32.0-e444220b",
+    "prompt_version": "freeform-turn-da-v13",
+    "schema_version": "turn-agent-response-schema-v2",
+    "runtime": "shared schema-v2 importer, initializer, context builder, orchestrator, validator, and SQL event/state path",
+    "reasoning_and_output": {
+      "completion_timeout_seconds": 240,
+      "turn_inference_timeout_seconds": 220,
+      "turn_total_timeout_seconds": 1380,
+      "max_output_tokens_per_call": 8192,
+      "bounded_final_corrections": 2,
+      "thinking": "Enabled on recorded initial calls; some repair/final-correction calls disable thinking to fit the bounded turn budget.",
+      "approved_evidence_search": "Only the scoped search_approved_evidence tool; maximum 3 searches per turn; searches in one model response execute concurrently."
+    }
+  },
+  "runs": [
+    {
+      "scenario": "industrial-workplace",
+      "scenario_version": "1.0",
+      "release_id": "616ffd90-9646-4850-8e16-200a0c7702ea",
+      "bundle_hash": "793eb41fbdaabfcd844ea67973087a479b5808fcf33b3b0015fd59512d03b76d",
+      "content_hash": "bf64005dbe4738fb894cc07459bcc8193f1c3f96a359a09b5b953cef0b8875e7",
+      "session_id": "a982938c-525e-47e6-8cc6-1179e5a5b1f4",
+      "world_date": "1913-01-01",
+      "role_id": "junior_investigator",
+      "opening_objective_ids": [
+        "assess_workplace_evidence",
+        "design_public_policy",
+        "distinguish_simulation",
+        "weigh_safety_and_livelihood"
+      ],
+      "client_elapsed_ms": 355322,
+      "opening_latency_ms": 82211,
+      "opening_prompt_tokens": 1802,
+      "opening_completion_tokens": 5167,
+      "turns": [
+        {
+          "turn_number": 1,
+          "player_action": "Kald search_approved_evidence præcis to gange. Brug query='ordinary wood' i det første kald og query='irrespective of the exit facilities' i det andet kald; kopiér begge query-strenge nøjagtigt som skrevet uden oversættelse, omskrivning eller tilføjelser. Brug de returnerede godkendte uddrag til at forklare på dansk præcist, hvad hvert uddrag viser, og angiv deres evidence-id'er. Hvis et kald ikke finder et godkendt uddrag, sig det i stedet for at gætte. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "New York Factory Investigating Commission mødes i 1913. Som en ung undersøgelsesarbejder har du modtaget instrukser om at analysere rapporten fra 1912. Du har allerede gennemført de foreslåede søgninger efter 'ordinary wood' og 'irrespective of the exit facilities', hvilket har returneret to godkendte passager fra 'Report on fire inspection work'.",
+          "inference": {
+            "latency_ms": 16313,
+            "prompt_tokens": 7682,
+            "completion_tokens": 980,
+            "model_call_count": 2,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "evidence_tool_calls_completed",
+                "duration_ms": 5602,
+                "enable_thinking": true,
+                "max_output_tokens": 8192,
+                "tool_calls_count": 2
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 10993,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [
+            {
+              "name": "search_approved_evidence",
+              "query_sha256": "89210cd2ccc3af138b1579117ebb882be13feea1d74c32928c37cdbc19d32439",
+              "result_passage_ids": [
+                "dd12fbca-ba28-4170-ab50-466a7c28110b"
+              ]
+            },
+            {
+              "name": "search_approved_evidence",
+              "query_sha256": "89dfffd3b43c94ae493f0258ac81bc6de1624b1f7da06cc0d3d55aeeb583ccee",
+              "result_passage_ids": [
+                "ed46350a-ec10-4d79-b709-fb8469e127ea"
+              ]
+            }
+          ],
+          "events": [
+            {
+              "event_type": "historical_claim_recorded",
+              "truth_type": "historical_evidence",
+              "evidence_ids": [
+                "dd12fbca-ba28-4170-ab50-466a7c28110b"
+              ]
+            },
+            {
+              "event_type": "historical_claim_recorded",
+              "truth_type": "historical_evidence",
+              "evidence_ids": [
+                "ed46350a-ec10-4d79-b709-fb8469e127ea"
+              ]
+            },
+            {
+              "event_type": "author_context_referenced",
+              "truth_type": "author_context"
+            },
+            {
+              "event_type": "learning_observation_recorded",
+              "truth_type": "learning_observation",
+              "objective_id": "assess_workplace_evidence"
+            }
+          ],
+          "state_counts": {
+            "historical_claims": 2,
+            "learning_observations": 1,
+            "decisions": 0,
+            "player_claims": 0
+          },
+          "world_date_after_turn": "1913-01-01"
+        },
+        {
+          "turn_number": 2,
+          "player_action": "Kald search_approved_evidence præcis to gange med query='ordinary wood' og query='irrespective of the exit facilities', én nøjagtig forespørgsel pr. kald. Udform en inspektionsoversigt, der kan undersøge forholdene på flere fabrikker: angiv tre konkrete forhold, som bør registreres på hvert sted, og forklar kort, hvordan bredere stikprøver kan afgrænse rapportens rækkevidde. Gentag ikke den forrige handlings svar eller formuleringer. Brug de returnerede evidence-id'er, og skeln mellem kildens fund og forslag til ny dataindsamling. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "Kommissionens arkiv viser to centrale risikofaktorer fra 1912. I bygninger under 150 fod kan indvendige overflader, døre og vinduesrammer være af almindeligt træ, hvilket skaber brandfare. Samtidig er store antal ansatte placeret i såkaldte loftbygninger uden hensyn til flugtsmulighederne. Disse to observationer fra Factory Investigating Commission's foreløbige rapport understreger den akutte brandfare i visse fabrikstyper.",
+          "inference": {
+            "latency_ms": 34836,
+            "prompt_tokens": 15542,
+            "completion_tokens": 2048,
+            "model_call_count": 3,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 56799,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "validation_rejected",
+                "failure_code": "MODEL_OUTPUT_INVALID",
+                "validation_codes": [
+                  "turn_agent_response_invalid"
+                ],
+                "duration_ms": 7136,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 3,
+                "outcome": "evidence_tool_calls_completed",
+                "validation_codes": [
+                  "requested_evidence_search_missing"
+                ],
+                "duration_ms": 16735,
+                "enable_thinking": false,
+                "max_output_tokens": 8192,
+                "tool_calls_count": 2,
+                "final_correction": true
+              },
+              {
+                "call_number": 4,
+                "outcome": "accepted",
+                "duration_ms": 11274,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [
+            {
+              "name": "search_approved_evidence",
+              "query_sha256": "89210cd2ccc3af138b1579117ebb882be13feea1d74c32928c37cdbc19d32439",
+              "result_passage_ids": [
+                "dd12fbca-ba28-4170-ab50-466a7c28110b"
+              ]
+            },
+            {
+              "name": "search_approved_evidence",
+              "query_sha256": "89dfffd3b43c94ae493f0258ac81bc6de1624b1f7da06cc0d3d55aeeb583ccee",
+              "result_passage_ids": [
+                "ed46350a-ec10-4d79-b709-fb8469e127ea"
+              ]
+            }
+          ],
+          "events": [
+            {
+              "event_type": "historical_claim_recorded",
+              "truth_type": "historical_evidence",
+              "evidence_ids": [
+                "dd12fbca-ba28-4170-ab50-466a7c28110b"
+              ]
+            },
+            {
+              "event_type": "historical_claim_recorded",
+              "truth_type": "historical_evidence",
+              "evidence_ids": [
+                "ed46350a-ec10-4d79-b709-fb8469e127ea"
+              ]
+            },
+            {
+              "event_type": "author_context_referenced",
+              "truth_type": "author_context"
+            },
+            {
+              "event_type": "learning_observation_recorded",
+              "truth_type": "learning_observation",
+              "objective_id": "assess_workplace_evidence"
+            }
+          ],
+          "state_counts": {
+            "historical_claims": 4,
+            "learning_observations": 2,
+            "decisions": 0,
+            "player_claims": 0
+          },
+          "world_date_after_turn": "1913-01-01"
+        },
+        {
+          "turn_number": 3,
+          "player_action": "Som undersøger, udarbejd åbne spørgsmål til fremtidige samtaler med arbejdere og arbejdsgiverrepræsentanter. Hvilke forskellige hensyn bør spørgsmålene afdække? Skriv kun forslag til spørgsmål, ikke historiske faktapåstande; sæt historical_claims=[]. Opfind ikke vidneudsagn. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "Du står i 1913 og forbereder en supplerende indstilling baseret på Factory Investigating Commissions 1912-rapport. To historiske påstande er allerede dokumenteret: risikoen for brændbart træ i bygninger under 150 fod og overfyldte loftbygninger uden flugtsmuligheder. Nu skal du formulere åbne spørgsmål til fremtidige samtaler med arbejdere og arbejdsgivere. Spørgsmålene skal afdække, hvordan fabrikserhvervsligheden vejer sikkerhed mod indkomst, og hvordan en sådan indstilling kan inspiceres i praksis. Formuler tre konkrete spørgsmål: Hvordan vejer fabriksejere omkostningerne ved brændbart træ mod lønpræstationen? Hvordan beskriver arbejderne deres flugtmuligheder i overfyldte lokaler? Hvordan kan en inspektør verificere, om en fabrik overholder flugtskraverne i praksis? Disse spørgsmål skal lede til en afvejning mellem sikkerhed og livscyklus, og foreslå en mekanisme for inspektion uden at ændre historiske fakta.",
+          "inference": {
+            "latency_ms": 7441,
+            "prompt_tokens": 5836,
+            "completion_tokens": 451,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 40983,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 7442,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 4,
+            "learning_observations": 2,
+            "decisions": 0,
+            "player_claims": 0
+          },
+          "world_date_after_turn": "1913-01-01"
+        },
+        {
+          "turn_number": 4,
+          "player_action": "Som undersøger, skitsér hvilke oplysninger du vil indhente fra arbejdere, arbejdsgivere og inspektører for at kunne vurdere en mulig inspektionsplan. Skriv kun om en fremtidig undersøgelsesmetode, ikke om hvad der faktisk skete; sæt historical_claims=[]. Opfind ikke vidneudsagn. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "Du skitsér en fremtidig undersøgelsesmetode. For at vurdere en inspektionsplan indsamler du oplysninger fra arbejdere, arbejdsgivere og inspektører. Arbejdere skal beskrive deres oplevelse af flugtmuligheder i overfyldte lokaler, mens arbejdsgivere skal dokumentere anvendelsen af almindeligt træ i indvendige overflader, døre og vinduesrammer i bygninger under 150 fod. Inspektører skal kunne verificere, om fabrikker overholder flugtskraverne i praksis. Denne metode sikrer, at rapportens observationer om brændbarhed og overfyldning kan kontrolleres uden at ændre historiske fakta.",
+          "inference": {
+            "latency_ms": 13525,
+            "prompt_tokens": 12999,
+            "completion_tokens": 731,
+            "model_call_count": 2,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 32664,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "validation_rejected",
+                "failure_code": "MODEL_OUTPUT_INVALID",
+                "validation_codes": [
+                  "turn_agent_response_invalid"
+                ],
+                "duration_ms": 7195,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 3,
+                "outcome": "accepted",
+                "duration_ms": 6330,
+                "enable_thinking": false,
+                "max_output_tokens": 8192,
+                "final_correction": true
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 4,
+            "learning_observations": 2,
+            "decisions": 0,
+            "player_claims": 0
+          },
+          "world_date_after_turn": "1913-01-01"
+        },
+        {
+          "turn_number": 5,
+          "player_action": "Uventet sidespor: skriv en kort fabel om en kat, der gemmer sig mellem sagsmapperne. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "En grå kat med en tynd hale krydser det papirfyldte bureau. Hun finder en lille hule mellem to høje, sorte sagsmapper og kryber ind, hvor hun gemmer sig i ro. I 1913, mens undersøgelsen fortsætter, er hun en stille medarbejder i arkivet.",
+          "inference": {
+            "latency_ms": 4504,
+            "prompt_tokens": 6249,
+            "completion_tokens": 270,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 34364,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 4505,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 4,
+            "learning_observations": 2,
+            "decisions": 0,
+            "player_claims": 0
+          },
+          "world_date_after_turn": "1913-01-01"
+        }
+      ],
+      "checks": {
+        "opening_reload_verified": true,
+        "turns_reload_verified": true,
+        "final_state_matches_last_turn_result": true,
+        "final_turn_number": 5
+      }
+    },
+    {
+      "scenario": "versailles-1919",
+      "scenario_version": "3.1-ai",
+      "release_id": "e8a596c4-823f-4d99-acdb-9ddf2ad671b5",
+      "bundle_hash": "b6ce72ba4b4d9c9a858899d42f2f18e8ff3b1922b88b68f31e0fa1e5dd397a31",
+      "content_hash": "240410e51b3cd9d89887369d6bd6a4055d2694e1487b106e81d29d71c7bf030b",
+      "session_id": "3160983f-69ba-4d1d-aba7-227bf41d93b1",
+      "world_date": "1919-04-01",
+      "role_id": "british_adviser",
+      "opening_objective_ids": [
+        "distinguish_simulation",
+        "examine_representation",
+        "weigh_security_and_justice"
+      ],
+      "client_elapsed_ms": 458489,
+      "opening_latency_ms": 6057,
+      "opening_prompt_tokens": 1656,
+      "opening_completion_tokens": 389,
+      "turns": [
+        {
+          "turn_number": 1,
+          "player_action": "Fortæl kort, hvordan en britisk rådgiver kan afveje sikkerhed og genopbygning i en kontrafaktisk drøftelse. Opfind ikke citater eller historiske faktapåstande. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "I den simulerede drøftelse i Paris 1919 vejer den britiske rådgiver sikkerhed og genopbygning mod hinanden, idet man anerkender, at udfaldene er kontrafaktiske og ikke baseret på historiske fakta. Strategien fokuserer på at understøtte en balance mellem sikkerhed og retfærdighed uden at opfinde citater, og man identificerer, at repræsentation er et centralt emne, hvor visse lande mangler indflydelse. Man foreslår ingen tilstandsændringer, da drøftelsen fortsætter som en åben dialog om konkurrerende hensyn.",
+          "inference": {
+            "latency_ms": 5349,
+            "prompt_tokens": 3119,
+            "completion_tokens": 329,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 83704,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 5349,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 0,
+            "learning_observations": 0,
+            "decisions": 0,
+            "player_claims": 0
+          },
+          "world_date_after_turn": "1919-04-01"
+        },
+        {
+          "turn_number": 2,
+          "player_action": "Undersøg, hvem drøftelserne berører uden selv at have en tydelig stemme. Forklar især repræsentationsproblemet, og markér mulige konsekvenser som kontrafaktiske. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "I Paris 1919 står den britiske rådgiver over for en drøftelse, hvor store magter har stemme, mens mindre nationer og kolonier står i skyggen. Repræsentationsproblemet fremstår som en central spænding, da mange grupper føler sig udelukkede fra beslutningerne, der skal forme det nye verdensorden. Mulige konsekvenser af denne manglende repræsentation markeres som kontrafaktiske, da de ikke er baseret på historiske fakta, men på en simulering af udfaldene. Drøftelsen fortsætter som en åben dialog om, hvordan man kan balancere sikkerhed og retfærdighed uden at opfinde historiske citater eller påstå faktapåstande, der ikke har belæg.",
+          "inference": {
+            "latency_ms": 8401,
+            "prompt_tokens": 3514,
+            "completion_tokens": 515,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 78911,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 8402,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [
+            {
+              "event_type": "player_claim_recorded",
+              "truth_type": "player_claim"
+            },
+            {
+              "event_type": "learning_observation_recorded",
+              "truth_type": "learning_observation",
+              "objective_id": "examine_representation"
+            }
+          ],
+          "state_counts": {
+            "historical_claims": 0,
+            "learning_observations": 1,
+            "decisions": 0,
+            "player_claims": 1
+          },
+          "world_date_after_turn": "1919-04-01"
+        },
+        {
+          "turn_number": 3,
+          "player_action": "Sammenlign hensyn til sikkerhed med hensyn til retfærdighed. Hvilke spørgsmål bør en britisk rådgiver undersøge videre, og hvilke omkostninger kan følge af prioriteringen? Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "I Paris 1919 vejer den britiske rådgiver sikkerhed og retfærdighed mod hinanden, idet udfaldene er kontrafaktiske og ikke baseret på historiske fakta. Prioritering af sikkerhed kan føre til en hård linje mod Sovjetunionen, mens en fokus på retfærdighed kan kræve en mere inklusiv fordeling af territorier og ressourcer. Rådgiveren identificerer repræsentationsproblemet, hvor mindre nationer mangler indflydelse, og markerer konsekvenserne som udfald i en simulering. Drøftelsen fortsætter som en åben dialog om konkurrerende hensyn uden tilstandsændringer.",
+          "inference": {
+            "latency_ms": 5897,
+            "prompt_tokens": 4260,
+            "completion_tokens": 344,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 67840,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 5897,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 0,
+            "learning_observations": 1,
+            "decisions": 0,
+            "player_claims": 1
+          },
+          "world_date_after_turn": "1919-04-01"
+        },
+        {
+          "turn_number": 4,
+          "player_action": "Forklar, hvordan en britisk rådgiver kan få Kinas indsigelser ført til protokols og taget op i en senere runde. Opfind ikke citater eller historiske faktapåstande. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "I den simulerede drøftelse i Paris 1919 kan den britiske rådgiver søge at få Kinas indsigelser ført til protokols ved at fremhæve den geopolitiske risiko for en fremtidig konflikt, hvis kinesiske interesser overses, og ved at knytte Kinas position til brede principper om retfærdighed og genopbygning. Dette gør det muligt at placere Kinas synspunkter i en protokol, der danner grundlag for senere runder, uden at kræve en øjeblikkelig stemme i drøftelsen. Udfaldet, hvor Kinas indsigelser bliver taget op i en senere runde, er et kontrafaktisk udfald, da det afviger fra den historiske realitet, hvor kinesiske krav ofte blev overset eller marginaliseret i de tidlige forhandlingsfaser.",
+          "inference": {
+            "latency_ms": 7018,
+            "prompt_tokens": 4647,
+            "completion_tokens": 410,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "structured_output_rejected",
+                "failure_code": "truncated_output",
+                "duration_ms": 62692,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              },
+              {
+                "call_number": 2,
+                "outcome": "accepted",
+                "duration_ms": 7019,
+                "enable_thinking": false,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 0,
+            "learning_observations": 1,
+            "decisions": 0,
+            "player_claims": 1
+          },
+          "world_date_after_turn": "1919-04-01"
+        },
+        {
+          "turn_number": 5,
+          "player_action": "Uventet sidespor: skriv en kort limerick om en blæksprutte på en cykel. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+          "reply": "I en simuleret pause i drøftelsen i Paris 1919, hvor den britiske rådgiver vejer sikkerhed og repræsentation, dukker der op en kort limerick om en blæksprutte på en cykel. Den fortællende tekst beskriver, hvordan en blæksprutte, der normalt er kendt for at være en havdyr, nu cykler, hvilket symboliserer en uventet skiftende perspektiv på repræsentation og sikkerhed. Limerickens struktur understøtter en kontrast mellem den almindelige rolle og en ny, simuleret situation, uden at ændre på den historiske kontekst eller tilstanden i drøftelsen.",
+          "inference": {
+            "latency_ms": 16550,
+            "prompt_tokens": 4628,
+            "completion_tokens": 943,
+            "model_call_count": 1,
+            "max_output_tokens": 8192,
+            "attempts": [
+              {
+                "call_number": 1,
+                "outcome": "accepted",
+                "duration_ms": 16551,
+                "enable_thinking": true,
+                "max_output_tokens": 8192
+              }
+            ]
+          },
+          "evidence_searches": [],
+          "events": [],
+          "state_counts": {
+            "historical_claims": 0,
+            "learning_observations": 1,
+            "decisions": 0,
+            "player_claims": 1
+          },
+          "world_date_after_turn": "1919-04-01"
+        }
+      ],
+      "checks": {
+        "opening_reload_verified": true,
+        "turns_reload_verified": true,
+        "final_state_matches_last_turn_result": true,
+        "final_turn_number": 5
+      }
+    }
+  ],
+  "evaluation": {
+    "generalization": "Both releases used the same schema-v2 runtime and completed initialization plus five actions. No scenario-name-specific runtime path was introduced.",
+    "chronology": [
+      "Industrial case opens 1913-01-01; the source is exposed from that date and identifies publication year 1912. The evidence payload now exposes only document_year to avoid turning the internal 1912-12-31 sentinel into an asserted publication day.",
+      "Versailles case remains at 1919-04-01 throughout the run.",
+      "Versailles turn 3 names the Soviet Union in a 1919 counterfactual answer; this is anachronistic terminology for the 1919 setting, even though surrounding outcomes are framed as simulated."
+    ],
+    "actor_knowledge": [
+      "Industrial evidence claims were assigned to the present commission actor and cited the searched passages. No actor dialogue was generated during these actions.",
+      "Versailles produced no actor dialogue. Its turn 4 answer makes an unsupported claim about how Chinese demands were treated historically, despite the release having no eligible evidence and the action prohibiting historical fact claims."
+    ],
+    "source_support": [
+      "Industrial turns 1 and 2 each performed two separate approved searches and recorded passage IDs dd12fbca-ba28-4170-ab50-466a7c28110b and ed46350a-ec10-4d79-b709-fb8469e127ea.",
+      "The first passage supports the listed wooden interior components in buildings under 150 feet. The second describes great numbers of employees in a number of loft-building industries being crowded irrespective of exit facilities. The model broadens this into “many factories” and labels the combined situation an “acute fire hazard”; the wider prevalence and severity are not directly stated by those excerpts.",
+      "The player-visible replies did not include the passage IDs, though the structured historical-claim events cite the approved IDs.",
+      "Versailles opened and ran with no eligible source passages; historical claim state remained empty, but unsupported historical assertions still appeared in narration."
+    ],
+    "counterfactual_labeling": [
+      "Both releases label fictional roles and simulation outcomes in authored context. The Versailles model generally used simulation language, but turn 4 still asserted an unsupported historical premise without a citation.",
+      "Industrial future inspection plans were presented as proposals; turns 3 and 4 added no historical-claim events."
+    ],
+    "learning_goal_coverage": {
+      "industrial": "The trace records assess_workplace_evidence. It does not record observations for weigh_safety_and_livelihood or design_public_policy, despite turns asking about worker/employer perspectives and inspection methods.",
+      "versailles": "The trace records examine_representation only. It does not record weigh_security_and_justice. The actions requested no state changes, and no decisions were recorded."
+    },
+    "strengths": [
+      "The second case is a substantively different investigation and inspection-planning case, compared with Versailles negotiation.",
+      "Both five-action runs include an unanticipated creative sidetrack and survive session/history reload with reloaded state equal to the last committed turn result.",
+      "Industrial exact-query search runs support multiple tool calls in one turn and provide evidence IDs that are persisted with structured claims.",
+      "Thinking-enabled initial calls and 8192-token output limits were exercised; bounded correction recovered some truncated or invalid responses."
+    ],
+    "failures_and_limitations": [
+      "Danish fluency and relevance remain inconsistent: industrial turns 3 and 4 contain malformed words/grammar, and the requested three concrete questions were not reliably delivered.",
+      "Repeated historical claims accumulate in state: after the same two passages are searched again on turn 2, historical_claims rises from 2 to 4.",
+      "Several first attempts were truncated or schema-invalid; repairs often disabled thinking. Bounded correction improved completion but did not ensure a high-quality answer.",
+      "The unexpected creative requests were answered in prose about the case instead of producing the requested fable/limerick.",
+      "The smoke actions request no state changes, so the traces do not establish successful policy decisions or meaningful simulation progression."
+    ],
+    "result": "Goal 10 gameplay/generalization done condition is met: the second case is playable through the shared runtime and both cases completed five varied actions. Historical and educational output quality is mixed and is not an acceptance pass for classroom use."
+  }
+}

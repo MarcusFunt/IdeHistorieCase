@@ -1,4 +1,4 @@
-"""Run one v2 opening and three real actions against an isolated local app stack."""
+"""Run one v2 opening and five real actions against an isolated local app stack."""
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +11,32 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
+
+ACTION_SCRIPTS = {
+    "versailles-1919": [
+        "Fortæl kort, hvordan en britisk rådgiver kan afveje sikkerhed og genopbygning i en kontrafaktisk drøftelse. Opfind ikke citater eller historiske faktapåstande. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Undersøg, hvem drøftelserne berører uden selv at have en tydelig stemme. Forklar især repræsentationsproblemet, og markér mulige konsekvenser som kontrafaktiske. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Sammenlign hensyn til sikkerhed med hensyn til retfærdighed. Hvilke spørgsmål bør en britisk rådgiver undersøge videre, og hvilke omkostninger kan følge af prioriteringen? Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Forklar, hvordan en britisk rådgiver kan få Kinas indsigelser ført til protokols og taget op i en senere runde. Opfind ikke citater eller historiske faktapåstande. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Uventet sidespor: skriv en kort limerick om en blæksprutte på en cykel. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+    ],
+    "industrial-workplace": [
+        "Kald search_approved_evidence præcis to gange. Brug query='ordinary wood' i det første kald og query='irrespective of the exit facilities' i det andet kald; kopiér begge query-strenge nøjagtigt som skrevet uden oversættelse, omskrivning eller tilføjelser. Brug de returnerede godkendte uddrag til at forklare på dansk præcist, hvad hvert uddrag viser, og angiv deres evidence-id'er. Hvis et kald ikke finder et godkendt uddrag, sig det i stedet for at gætte. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Kald search_approved_evidence præcis to gange med query='ordinary wood' og query='irrespective of the exit facilities', én nøjagtig forespørgsel pr. kald. Udform en inspektionsoversigt, der kan undersøge forholdene på flere fabrikker: angiv tre konkrete forhold, som bør registreres på hvert sted, og forklar kort, hvordan bredere stikprøver kan afgrænse rapportens rækkevidde. Gentag ikke den forrige handlings svar eller formuleringer. Brug de returnerede evidence-id'er, og skeln mellem kildens fund og forslag til ny dataindsamling. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Som undersøger, udarbejd åbne spørgsmål til fremtidige samtaler med arbejdere og arbejdsgiverrepræsentanter. Hvilke forskellige hensyn bør spørgsmålene afdække? Skriv kun forslag til spørgsmål, ikke historiske faktapåstande; sæt historical_claims=[]. Opfind ikke vidneudsagn. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Som undersøger, skitsér hvilke oplysninger du vil indhente fra arbejdere, arbejdsgivere og inspektører for at kunne vurdere en mulig inspektionsplan. Skriv kun om en fremtidig undersøgelsesmetode, ikke om hvad der faktisk skete; sæt historical_claims=[]. Opfind ikke vidneudsagn. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+        "Uventet sidespor: skriv en kort fabel om en kat, der gemmer sig mellem sagsmapperne. Skriv kun fortællende tekst uden dialog, og foreslå ingen tilstandsændringer.",
+    ],
+}
+
+
+def _actions_for(scenario: str) -> list[str]:
+    try:
+        return ACTION_SCRIPTS[scenario]
+    except KeyError as exc:
+        raise ValueError(
+            f"no reviewed five-action smoke script configured for scenario {scenario!r}"
+        ) from exc
 
 
 def _configuration() -> tuple[str, str, str, str | None, float]:
@@ -37,11 +63,11 @@ def _configuration() -> tuple[str, str, str, str | None, float]:
     scenario = os.environ.get("CASES_SMOKE_SCENARIO", "versailles-1919")
     role = os.environ.get("CASES_SMOKE_ROLE") or None
     try:
-        timeout = float(os.environ.get("CASES_SMOKE_TIMEOUT_SECONDS", "240"))
+        timeout = float(os.environ.get("CASES_SMOKE_TIMEOUT_SECONDS", "1200"))
     except ValueError as exc:
         raise ValueError("CASES_SMOKE_TIMEOUT_SECONDS must be numeric") from exc
-    if not 10 <= timeout <= 900:
-        raise ValueError("CASES_SMOKE_TIMEOUT_SECONDS must be between 10 and 900")
+    if not 10 <= timeout <= 1800:
+        raise ValueError("CASES_SMOKE_TIMEOUT_SECONDS must be between 10 and 1800")
     return base_url, database, scenario, role, timeout
 
 
@@ -117,11 +143,7 @@ async def run_smoke() -> dict:
                 raise RuntimeError("opening or initialized state changed after session reload")
             resumed_state = resumed_body["state"]
 
-            actions = [
-                "Bed den britiske delegation forklare sine vigtigste hensyn. Svar kun med dialog og fortælling; foreslå ingen ændringer i tilstanden.",
-                "Spørg hvilke berørte grupper der mangler indflydelse. Svar kun med dialog og fortælling; foreslå ingen ændringer i tilstanden.",
-                "Jeg foreslår uventet, at vi afbryder mødet og inviterer alle til at synge på gårdspladsen.",
-            ]
+            actions = _actions_for(scenario)
             turn_trace = []
             for expected_turn, action in enumerate(actions):
                 client_turn_id = str(uuid4())
@@ -190,8 +212,8 @@ async def run_smoke() -> dict:
             if (
                 resumed.status_code != 200
                 or history.status_code != 200
-                or resumed.json().get("turn_number") != 3
-                or len(history.json().get("turns", [])) != 3
+                or resumed.json().get("turn_number") != len(actions)
+                or len(history.json().get("turns", [])) != len(actions)
                 or history.json().get("turns")
                 != [item["result"] for item in turn_trace]
                 or resumed.json().get("state")
@@ -235,7 +257,7 @@ async def run_smoke() -> dict:
         "scenario_content_hash": (provenance.get("scenario") or {}).get("content_hash"),
         "eligible_evidence": provenance.get("eligible_evidence", []),
         "turn_trace": turn_trace,
-        "turns_reload_verified": len(turn_trace) == 3,
+        "turns_reload_verified": len(turn_trace) == len(_actions_for(scenario)),
         "final_state_matches_last_turn_result": (
             isinstance(resumed_state, dict)
             and resumed_state == turn_trace[-1]["result"].get("state")
@@ -244,6 +266,10 @@ async def run_smoke() -> dict:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     try:
         result = asyncio.run(run_smoke())
     except (TypeError, ValueError, RuntimeError, httpx.HTTPError) as exc:

@@ -21,6 +21,7 @@ from app.runtime.context import (
     EVIDENCE_RETRIEVAL_FAILURE,
     ContextBudget,
     ContextBuildFailure,
+    augment_session_prompt_context,
     build_session_context,
 )
 from app.scenarios.schema_v2 import ScenarioDefinitionV2
@@ -466,6 +467,9 @@ async def test_retrieval_excludes_future_wrong_actor_unapproved_and_rights_pendi
     assert passages[0]["source_citation_ready"] is True
     assert passages[0]["claim_verification_status"] == "not_assessed"
     assert passages[0]["trust_category"] == "historical_evidence"
+    assert passages[0]["document_year"] == "1888"
+    assert "document_date" not in passages[0]
+    assert passages[0]["in_world_available_from"] == "1888-04-30"
 
 
 @pytest.mark.asyncio
@@ -898,3 +902,36 @@ async def test_context_rejects_nonplayable_role_and_tampered_sql_content():
             query="",
             retrieval_service=rag,
         )
+
+
+@pytest.mark.asyncio
+async def test_model_requested_evidence_hits_are_rechecked_before_context_merge():
+    db, session, rag, _ = prepared_context(
+        source_ids=["R01", "R02"],
+        state={"world_date": "1888-05-01"},
+    )
+    context = await build_session_context(
+        db,
+        session,
+        stage="turn",
+        query="",
+        retrieval_service=rag,
+    )
+    approved = passage_candidate("R01", available_from=date(1888, 4, 30))
+    pending = passage_candidate(
+        "R01",
+        available_from=date(1888, 4, 30),
+        review_status="pending",
+    )
+    future = passage_candidate(
+        "R02",
+        document_date=date(1888, 6, 1),
+        available_from=date(1888, 6, 1),
+    )
+
+    expanded = augment_session_prompt_context(context, [approved, pending, future])
+
+    visible = expanded.payload["evidence"]["passages"]
+    assert [item["passage_id"] for item in visible] == [str(approved.passage.id)]
+    assert visible[0]["citation_ready"] is True
+    assert expanded.metadata["evidence"]["retrieved_passage_count"] == 1

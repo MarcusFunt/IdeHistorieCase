@@ -1,0 +1,44 @@
+schema_version: 1
+scenario_slug: industrial-workplace
+scenario_version: "1.0"
+phase_world_dates:
+  opening: "1913-01-01"
+passages:
+  - key: combustible_finish_under_150_feet
+    source_identifier: R01
+    source_title: "Preliminary report of the Factory Investigating Commission, 1912"
+    source_url: "https://archive.org/details/0962976.1912.001.umich.edu"
+    source_anchor: "Report on fire inspection work, section Two Dangerous Types of Buildings"
+    passage_text: >-
+      When less than 150 feet in height, in which the interior finish, trim, doors,
+      window frames and sash, etc., may be of ordinary wood.
+    passage_sha256: 94b20e9dd716f95f28d7c2068dc8bec1cf312a536da5d420ba7b0984c11868bf
+    document_date: "1912-12-31"
+    in_world_available_from: "1913-01-01"
+    postgame_only: false
+    actor_ids: [commission, workers, employers]
+    visibility_scope: public
+    rights_basis: >-
+      Primary New York State Commission report published in 1912. Passage was
+      checked against the digitized report; review is limited to this old official
+      text and prototype use. No modern annotations are included.
+  - key: employees_crowded_irrespective_of_exits
+    source_identifier: R01
+    source_title: "Preliminary report of the Factory Investigating Commission, 1912"
+    source_url: "https://archive.org/details/0962976.1912.001.umich.edu"
+    source_anchor: "Report on fire inspection work, section Two Dangerous Types of Buildings"
+    passage_text: >-
+      In all these so-called loft buildings light manufacturing is permitted, and
+      in the case of a number of industries coming under this classification,
+      great numbers of employees are crowded into these buildings irrespective
+      of the exit facilities.
+    passage_sha256: d9a03e576ffb072d9c314e4d9d90b444bbbaca795aeb713123014b8680a7946b
+    document_date: "1912-12-31"
+    in_world_available_from: "1913-01-01"
+    postgame_only: false
+    actor_ids: [commission, workers, employers]
+    visibility_scope: public
+    rights_basis: >-
+      Primary New York State Commission report published in 1912. Passage was
+      checked against the digitized report; review is limited to this old official
+      text and prototype use. No modern annotations are included.

@@ -8,6 +8,7 @@ from app.scenarios.schema import Id, ShortText, StrictModel, Text
 
 MAX_STATE_OPERATIONS = 20
 MAX_PROPOSAL_JSON_CHARS = 24_000
+MAX_EVIDENCE_SEARCH_TOOL_CALLS = 3
 
 CanonicalDate = Annotated[
     str,
@@ -160,6 +161,33 @@ class TurnProposal(StrictModel):
             raise ValueError("a continuing scene requires a next-player prompt")
         if self.scene_status == "complete" and self.next_player_prompt is not None:
             raise ValueError("a completed scene cannot prompt for another action")
+        return self
+
+
+class EvidenceSearchToolCall(StrictModel):
+    """A model request for the one bounded historical-search tool."""
+
+    name: Literal["search_approved_evidence"]
+    query: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+    ]
+
+
+class TurnAgentResponse(StrictModel):
+    """Request bounded evidence searches or return one final validated proposal."""
+
+    schema_version: Literal[1]
+    tool_calls: list[EvidenceSearchToolCall] = Field(max_length=MAX_EVIDENCE_SEARCH_TOOL_CALLS)
+    proposal: TurnProposal | None
+
+    @model_validator(mode="after")
+    def response_is_tools_or_proposal(self):
+        normalized_queries = [" ".join(call.query.casefold().split()) for call in self.tool_calls]
+        if len(normalized_queries) != len(set(normalized_queries)):
+            raise ValueError("evidence search tool calls must have unique queries")
+        if bool(self.tool_calls) == (self.proposal is not None):
+            raise ValueError("response must contain tool calls or a final proposal, but not both")
         return self
 
 

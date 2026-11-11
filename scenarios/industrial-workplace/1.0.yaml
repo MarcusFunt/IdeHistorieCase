@@ -1,0 +1,105 @@
+schema_version: 2
+slug: industrial-workplace
+version: "1.0"
+metadata:
+  title: "Fabrikssikkerhed under debat"
+  language: da
+  summary: "Undersøg arbejdsmiljø, myndighedsansvar og gennemførlige sikkerhedstiltag."
+  subject: "Idéhistorie"
+  intended_audience: "HTX"
+  historical_period: {start: "1911-06-30", end: "1915-01-31"}
+historical_context:
+  introduction: >-
+    New Yorks Factory Investigating Commission undersøger fabriksforhold og
+    sikkerhed. Du spiller en fiktiv yngre undersøger, der i 1913 hjælper med at
+    forberede en supplerende indstilling. Brug de godkendte kildepassager som
+    afgrænset historisk belæg, og undersøg uenigheden mellem arbejdere,
+    arbejdsgivere og inspektører. Ingen enkelt kilde beskriver alle fabrikker.
+  counterfactual_disclaimer: >-
+    Rollen er fiktiv. Nye samtaler, forslag og reaktioner er simulationer, ikke
+    historiske udsagn eller vedtagne regler. Skeln mellem Kommissionens
+    dokumenterede rapport og dine mulige anbefalinger.
+actors:
+  - id: commission
+    name: "Kommissionens undersøgelsesarbejde"
+    description: "Undersøger fabriksforhold og udarbejder forslag."
+    motivations: [dokumentation, offentlig sikkerhed, håndhævelse]
+    knowledge_constraints: ["Brug kun oplysninger, der var tilgængelige på verdensdatoen."]
+  - id: workers
+    name: "Fabriksarbejdere"
+    description: "Arbejdere med forskellige erfaringer, behov og risici."
+    motivations: [sikkerhed, indkomst, indflydelse]
+    knowledge_constraints: ["Opfind ikke vidneudsagn fra virkelige arbejdere."]
+  - id: employers
+    name: "Fabrikanter og arbejdsgivere"
+    description: "Arbejdsgivere med forskellige produktions- og omkostningshensyn."
+    motivations: [drift, omkostninger, forudsigelige regler]
+    knowledge_constraints: ["Antag ikke, at alle arbejdsgivere deler én holdning."]
+  - id: inspectors
+    name: "Fabriksinspektører"
+    description: "Inspektører, der skal opdage risici og håndhæve regler."
+    motivations: [inspektion, forebyggelse, praktisk håndhævelse]
+roles:
+  - id: junior_investigator
+    actor_id: commission
+    title: "Fiktiv yngre undersøger"
+    playable: true
+    introduction: "Du samler belæg og hjælper med at udforme en mulig sikkerhedsindstilling."
+    knowledge_constraints: ["Du er ikke en historisk kommissær og må ikke opfinde historiske citater."]
+  - id: worker_delegate
+    actor_id: workers
+    title: "Fiktiv arbejderdagat"
+    playable: true
+    introduction: "Du repræsenterer et sammensat, fiktivt arbejderperspektiv."
+    knowledge_constraints: ["Adskil dine simulationer fra dokumenterede vidneudsagn."]
+  - id: employer_adviser
+    actor_id: employers
+    title: "Fiktiv arbejdsgiverrådgiver"
+    playable: true
+    introduction: "Du vurderer forslag til sikkerhed og fabriksdrift."
+    knowledge_constraints: ["Opfind ikke historiske udtalelser fra bestemte ejere."]
+default_role_id: junior_investigator
+learning_objectives:
+  - id: assess_workplace_evidence
+    description: "Vurder hvad en kommissionsrapport kan og ikke kan dokumentere om fabriksforhold."
+    concepts: [kildekritik, fabriksinspektion]
+    observable_behaviors: ["Knyt en påstand til en godkendt passage.", "Afgræns en rapports rækkevidde."]
+  - id: weigh_safety_and_livelihood
+    description: "Afvej arbejdssikkerhed, indkomst og fabrikkers praktiske drift."
+    concepts: [arbejdsmiljø, socialt ansvar]
+    observable_behaviors: ["Beskriv mindst to berørte perspektiver.", "Forklar en afvejning."]
+  - id: design_public_policy
+    description: "Overvej hvordan sikkerhedsregler kan inspiceres og håndhæves."
+    concepts: [lovgivning, myndighedsansvar]
+    observable_behaviors: ["Foreslå en håndhævelsesmekanisme.", "Identificer en mulig utilsigtet konsekvens."]
+  - id: distinguish_simulation
+    description: "Skeln mellem rapportens historiske observationer og spillets mulige indstilling."
+    concepts: [historisk belæg, kontrafaktisk historie]
+    observable_behaviors: ["Mærk egne forslag som simulation."]
+chronology:
+  opening_date: "1913-01-01"
+  max_days_per_advance: 7
+interaction_guidance:
+  style: evidence_inquiry
+  freedom: open_ended
+  emphasize: [source_criticism, worker_safety, competing_interests, enforceable_policy]
+content_items:
+  - key: commission_briefing
+    kind: author_briefing
+    file: notes/commission_briefing.md
+    mode: gameplay
+    visibility: [junior_investigator, worker_delegate, employer_adviser]
+    review_status: author_reviewed
+    world_valid_from: "1913-01-01"
+    source_refs: [R01]
+completion_policy:
+  mode: goal_or_player_end
+  min_meaningful_decisions: 3
+  max_turns: 30
+  objective_ids: [assess_workplace_evidence, weigh_safety_and_livelihood, design_public_policy]
+optional_beats:
+  - id: inspection_plan
+    title: "Udform en plan for fabriksinspektion"
+    description: "Overvej hvordan en anbefaling kan efterprøves i praksis."
+    objective_ids: [design_public_policy]
+source_refs: [R01]

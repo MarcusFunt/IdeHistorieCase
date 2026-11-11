@@ -311,6 +311,11 @@ async def record_attempt_metadata(claim: Claim, metadata: dict) -> bool:
         "model_revision",
         "prompt_tokens",
         "completion_tokens",
+        "tool_calls",
+        "tool_calls_count",
+        "final_correction",
+        "enable_thinking",
+        "max_output_tokens",
     }
     safe = {key: value for key, value in metadata.items() if key in allowed}
     async with session_factory() as db, db.begin():

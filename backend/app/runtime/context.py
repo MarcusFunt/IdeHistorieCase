@@ -97,6 +97,7 @@ class SessionPromptContext:
     truncated_note_keys: tuple[str, ...] = ()
     omitted_evidence_count: int = 0
     omitted_evidence_keys: tuple[str, ...] = ()
+    retrieval_context: EvidenceContext | None = None
 
     def to_inference_input(self, *, current_state: dict) -> dict:
         """Return the documented adapter contract for a downstream inference client."""
@@ -302,7 +303,9 @@ def _passage_payload(
         "source_anchor": passage.source_anchor,
         "passage_text": passage.text,
         "passage_sha256": passage.passage_sha256,
-        "document_date": passage.document_date.isoformat(),
+        # Stored day-level dates can be conservative bounds for year-only sources.
+        # Expose only year-level source dating to the narrator.
+        "document_year": str(passage.document_date.year),
         "in_world_available_from": (
             passage.in_world_available_from.isoformat()
             if passage.in_world_available_from
@@ -379,6 +382,121 @@ def _fit_context(
         truncated_keys.extend(item["item_key"] for item in notes[index + 1 :])
         break
     return payload, tuple(truncated_keys), tuple(omitted_evidence_keys)
+
+
+def augment_session_prompt_context(
+    context: SessionPromptContext,
+    candidates: list[SearchCandidate],
+) -> SessionPromptContext:
+    """Merge model-requested search hits after rechecking source, date, actor and rights."""
+    evidence_context = context.retrieval_context
+    if evidence_context is None:
+        raise ContextBuildFailure(
+            "validation_failure", "session context has no approved-evidence search scope"
+        )
+
+    eligible_sources = available_source_ids(
+        evidence_context.evidence_policy,
+        evidence_context.world_date,
+        actor_id=evidence_context.actor_id,
+        mode=evidence_context.mode,
+    )
+    citation_ids = citation_source_ids(evidence_context.evidence_policy, eligible_sources)
+    payload = context.payload
+    evidence = payload.get("evidence", {})
+    existing = evidence.get("passages", []) if isinstance(evidence, dict) else []
+    if not isinstance(existing, list):
+        raise ContextBuildFailure("validation_failure", "session evidence context is invalid")
+
+    passages = list(existing)
+    seen_ids = {
+        passage.get("passage_id")
+        for passage in existing
+        if isinstance(passage, dict) and isinstance(passage.get("passage_id"), str)
+    }
+    retrieved_ids = set(seen_ids)
+    for candidate in candidates:
+        try:
+            if not is_eligible(
+                candidate.passage,
+                evidence_context,
+                candidate.approval,
+                evidence_context.evidence_policy,
+            ):
+                continue
+        except Exception as exc:
+            raise ContextBuildFailure(
+                "validation_failure", "approved-evidence search returned invalid metadata"
+            ) from exc
+        passage_id = str(candidate.passage.id)
+        retrieved_ids.add(passage_id)
+        if passage_id in seen_ids:
+            continue
+        passages.append(
+            _passage_payload(
+                candidate,
+                citation_ready=candidate.passage.source_identifier in citation_ids,
+            )
+        )
+        seen_ids.add(passage_id)
+
+    core = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"author_notes", "evidence"}
+    }
+    notes = payload.get("author_notes", [])
+    if not isinstance(notes, list):
+        raise ContextBuildFailure("validation_failure", "session author context is invalid")
+    budget = context.metadata.get("budget", {})
+    max_chars = budget.get("max_serialized_chars") if isinstance(budget, dict) else None
+    if type(max_chars) is not int or max_chars < 1:
+        max_chars = DEFAULT_CONTEXT_MAX_CHARS
+    try:
+        merged, truncated_keys, omitted_keys = _fit_context(
+            core, notes, passages, max_chars=max_chars
+        )
+    except ValueError as exc:
+        raise ContextBuildFailure("validation_failure", "expanded evidence context is too large") from exc
+
+    if merged["evidence"]["passages"]:
+        status = EVIDENCE_INCLUDED
+    elif omitted_keys:
+        status = EVIDENCE_EXCLUDED_BY_BUDGET
+    else:
+        status = context.evidence_status
+    merged["evidence"]["status"] = status
+    metadata = {
+        **context.metadata,
+        "evidence": {
+            **context.metadata.get("evidence", {}),
+            "status": status,
+            "eligible_source_ids": sorted(eligible_sources),
+            "eligible_source_count": len(eligible_sources),
+            "retrieved_passage_count": len(retrieved_ids),
+            "included_passage_count": len(merged["evidence"]["passages"]),
+            "omitted_passage_count": len(omitted_keys),
+            "omitted_passage_keys": list(omitted_keys),
+        },
+        "budget": {
+            **budget,
+            "serialized_chars": _serialized_chars(merged),
+            "truncated_author_note_keys": list(truncated_keys),
+        },
+    }
+    return SessionPromptContext(
+        payload=merged,
+        world_date=context.world_date,
+        evidence_status=status,
+        serialized_chars=_serialized_chars(merged),
+        stage=context.stage,
+        mode=context.mode,
+        metadata=metadata,
+        truncated_note_keys=truncated_keys,
+        omitted_evidence_count=len(omitted_keys),
+        omitted_evidence_keys=omitted_keys,
+        retrieval_context=evidence_context,
+    )
 
 
 async def build_session_context(
@@ -648,4 +766,5 @@ async def build_session_context(
         truncated_note_keys=truncated_keys,
         omitted_evidence_count=len(omitted_evidence_keys),
         omitted_evidence_keys=omitted_evidence_keys,
+        retrieval_context=evidence_context,
     )

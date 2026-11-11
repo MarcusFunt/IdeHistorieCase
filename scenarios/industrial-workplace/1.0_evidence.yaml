@@ -1,0 +1,10 @@
+policy_version: 1
+scenario_slug: industrial-workplace
+scenario_version: "1.0"
+citation_ready: true
+source_access:
+  - source_id: R01
+    in_world_available_from: "1913-01-01"
+    scope: period_statement_paraphrase_only
+    actor_ids: [commission, workers, employers]
+    citation_ready: true

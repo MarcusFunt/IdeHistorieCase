@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(default="http://ddu-llm:8080", min_length=1, max_length=2048)
     llm_model_alias: str = Field(default="ddu-narrator", min_length=1, max_length=128)
     llm_enable_thinking: bool | None = None
-    llm_completion_timeout_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
+    llm_completion_timeout_seconds: float = Field(default=240.0, ge=1.0, le=600.0)
     rag_embed_base_url: str = Field(default="http://ddu-embed:8080", min_length=1, max_length=2048)
     rag_embed_model_id: str = Field(
         default="Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     turn_lease_seconds: int = Field(default=60, ge=1, le=600)
     turn_lease_renew_interval_seconds: float = Field(default=15.0, gt=0.0, le=300.0)
     turn_context_timeout_seconds: float = Field(default=30.0, ge=0.1, le=300.0)
-    turn_inference_timeout_seconds: float = Field(default=90.0, ge=1.0, le=600.0)
-    turn_total_timeout_seconds: float = Field(default=240.0, ge=2.0, le=900.0)
+    turn_inference_timeout_seconds: float = Field(default=220.0, ge=1.0, le=600.0)
+    turn_total_timeout_seconds: float = Field(default=1380.0, ge=2.0, le=1800.0)
 
     @field_validator("llm_base_url")
     @classmethod
@@ -137,12 +137,14 @@ class Settings(BaseSettings):
     def validate_turn_timing(self) -> Self:
         if self.turn_lease_renew_interval_seconds * 2 >= self.turn_lease_seconds:
             raise ValueError("turn lease renewal interval must be less than half the lease")
+        # Cover the six-call ceiling: bounded tool planning, repair, final corrections,
+        # and proposal generation. Tool queries themselves run concurrently.
         minimum_total = (
-            self.turn_context_timeout_seconds + 2 * self.turn_inference_timeout_seconds
+            self.turn_context_timeout_seconds + 6 * self.turn_inference_timeout_seconds + 5
         )
         if self.turn_total_timeout_seconds < minimum_total:
             raise ValueError(
-                "turn total timeout must allow context generation and one bounded repair call"
+                "turn total timeout must allow context and six bounded model calls"
             )
         return self
 
